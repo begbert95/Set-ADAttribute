@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 2.0
+.VERSION 2.1.0
 
 .GUID 7daec28b-fcd0-423d-93f6-157a3156f1d3
 
@@ -26,22 +26,23 @@
 .EXTERNALSCRIPTDEPENDENCIES 
 
 .RELEASENOTES
+Fixed Multiple returns bug
 
+#> 
 
-#>
+#Requires -Module ActiveDirectory
 
 <# 
 
 .DESCRIPTION 
- test 
+Pulls information from email to update AD accounts and provide logging
 
 #> 
+
 #region settings
-#Requires -Module ActiveDirectory
 Set-StrictMode -Version Latest
-$DebugPreference = 'silentlycontinue'
-$VerbosePreference = 'silentlycontinue'
-$ErrorActionPreference = 'stop'
+$DebugPreference = 'continue'
+$VerbosePreference = 'continue'
 #endregion
 
 #region functions
@@ -121,23 +122,30 @@ function Set-LogPath {
 		[string]$Path,
 		[string]$FileType
 	)
+
 	[datetime]$currentDate = Get-Date
+
 	Write-Verbose "Checking path $Path validity"
+
 	if (!(Test-Path $Path)) {
 		Write-Warning "Unable to use selected path. Setting log path to local folder"
 		$Path = "."
 	}
- else {
+	else {
 		Write-Verbose "$Path is valid"
 	}
+
 	switch ($FileType) {
 		{ $_ -eq 'Csv' } { $ReturnPath = $Path + "\AdAttribute-DataFile-" + $currentDate.Year + "-" + $currentDate.Month + ".csv" }
 		{ $_ -eq 'Log' } { $ReturnPath = $Path + "\AdAttribute-Log-" + $currentDate.ToString("s").Replace(":", ";") + ".log" }
 		Default { 
-			Write-Error "Error creating log file. Please make sure that the FileType you are sending is either 'Csv' or 'Log'" -ErrorAction Stop
+			Write-Error "Error creating log file. Please make sure that the FileType you are sending is either 'Csv' or 'Log'"
 			$Error 
+			Read-Host
+			exit
 		}
 	}
+
 	Write-Verbose "File log is $ReturnPath"
 	return $ReturnPath
 }
@@ -179,13 +187,13 @@ function Search-Managers {
 		if ($user.Manager -eq $Manager) {
 			$ReturnList.Add($user) | Out-Null
 		}
-		# foreach ($item in $user.Keys) {
-		# 	Write-Debug "Key: $item"
-		# 	Write-Debug $("Value: " + $user[$item])
-		# 	if ($user[$item] -eq $Manager)
-		# }
+		
 	}
-	
+	# foreach ($item in $user.Keys) {
+	# 	Write-Debug "Key: $item"
+	# 	Write-Debug $("Value: " + $user[$item])
+	# 	if ($user[$item] -eq $Manager)
+	# }
 	# $FilteredList = $UserList | Where-Object { Manager -eq $Manager }
 	# foreach ($user in $FilteredList) {
 	# 	Write-Debug $user.SamAccountName
@@ -244,35 +252,19 @@ function Search-BothNames {
 		[string]$LastName
 	)
 
-	$hash = New-Object -TypeName hashtable
 	$ReturnList = New-Object -TypeName System.Collections.ArrayList
 	$gn = "*" + $FirstName + "*"
 	$sn = "*" + $LastName + "*"
 
 	
 	Write-Verbose $("Searching for users with firstname " + $FirstName + " and lastname " + $LastName)
-	$UserList = Get-ADUser -Filter { GivenName -like $gn -and Surname -like $sn } -Properties $Properties | Select-Object $Properties
+	$ReturnList += Get-ADUser -Filter { GivenName -like $gn -and Surname -like $sn } -Properties $Properties | Select-Object $Properties
 
-	
-	
 
-	foreach ($user in $UserList) {
-		$hash.Clear()
-		Write-Debug "`n"
-		Write-Debug $("Processing " + $user.SamAccountName + " from Search-BothNames")
-
-		foreach ($prop in $Properties) {
-
-			Write-Debug $("Adding $prop = " + $user.$prop + " to a temporary hashtable for " + $user.SamAccountName)
-			$hash.Add($prop, $user.$prop)
-		}
-		Write-Debug "Adding user to the return list"
-		Write-Debug $("Hash "+ $hash.SamAccountName)
-		$ReturnList.Add($hash) | Out-Null
-	}
-	foreach ($pers in $ReturnList){
+	foreach ($pers in $ReturnList) {
 		Write-Debug $pers.SamAccountName
 	}
+
 	Write-Debug ""
 	Write-Debug $("Returning " + $ReturnList.Count + " users of type " + $ReturnList.GetType() + " from Search-BothNames")
 	
@@ -313,7 +305,6 @@ function Start-BasicSearch {
 					Write-Debug $("Adding $prop as empty value to hashtable")
 					$ReturnHash.Add($prop, "") 
 				}
-
 			}
 
 			return , [hashtable]$ReturnHash
@@ -516,41 +507,49 @@ function Read-Email {
 function Test-JSONData {
 	param([Object]$JsonData)
 
+	try {
+		if (!($JsonData.throttleLimit)) {
+			$JsonData.throttleLimit = ([int]$env:NUMBER_OF_PROCESSORS + 1)
+			Write-Warning $("No throttle limit specified. Proceeding with default limit of" + ([int]$env:NUMBER_OF_PROCESSORS + 1))
+		
+		}
+		if (!($JsonData.daysAgo)) {
+			$JsonData.daysAgo = 30
+			Write-Warning "No date filter specified. Proceeding with default date range of 30 days"
+		
+		}
+		if (!($JsonData.emailSubject)) {
+			$JsonData.emailSubject = $null
+			Write-Warning "No 'Subject' filter specified"
+		
+		}
+		if (!($JsonData.emailSender)) {
+			$JsonData.emailSender = $null
+			Write-Warning "No 'From' filter specified"
+		
+		}
+		if (!($JsonData.property)) {
+			$JsonData.property = $null
+			Write-Error "No property was specified. Please specify the property in the config.json file" -ErrorAction stop
+		}
+		if (!($JsonData.delimiter)) {
+			$JsonData.delimiter = ": "
+			Write-Warning "No delimiter was specified. Proceeding with the default ': '"
+		
+		}
+		if (!($JsonData.searchBase)) {
+			$JsonData.searchBase = "*"
+			Write-Warning "No searchbase specified. The default searchbase will be used"
+		
+		}
+	}
+ catch {
+		$Error
+		Write-Error "Error validating data"
+		Read-Host
+		exit
+	}
 
-	if (!($JsonData.throttleLimit)) {
-		$JsonData.throttleLimit = ([int]$env:NUMBER_OF_PROCESSORS + 1)
-		Write-Warning $("No throttle limit specified. Proceeding with default limit of" + ([int]$env:NUMBER_OF_PROCESSORS + 1))
-		
-	}
-	if (!($JsonData.daysAgo)) {
-		$JsonData.daysAgo = 30
-		Write-Warning "No date filter specified. Proceeding with default date range of 30 days"
-		
-	}
-	if (!($JsonData.emailSubject)) {
-		$JsonData.emailSubject = $null
-		Write-Warning "No 'Subject' filter specified"
-		
-	}
-	if (!($JsonData.emailSender)) {
-		$JsonData.emailSender = $null
-		Write-Warning "No 'From' filter specified"
-		
-	}
-	if (!($JsonData.property)) {
-		$JsonData.property = $null
-		Write-Error "No property was specified. Please specify the property in the config.json file" -ErrorAction stop
-	}
-	if (!($JsonData.delimiter)) {
-		$JsonData.delimiter = ": "
-		Write-Warning "No delimiter was specified. Proceeding with the default ': '"
-		
-	}
-	if (!($JsonData.searchBase)) {
-		$JsonData.searchBase = "*"
-		Write-Warning "No searchbase specified. The default searchbase will be used"
-		
-	}
 	Write-Debug $("")
 	Write-Debug $("Throttle Limit: " + $JsonData.throttleLimit)
 	Write-Debug $("Days Ago: " + $JsonData.daysAgo)
@@ -565,41 +564,109 @@ function Test-JSONData {
 	Write-Debug $("")
 
 
-
 	return $JsonData
+}
+
+function Set-ScriptMode {
+	param (
+		[string]$Mode
+	)
+	$Dev = New-Object -TypeName bool
+
+	switch ($Mode) {
+		'prod' {
+			$DebugPreference = 'silentlycontinue'
+			$VerbosePreference = 'silentlycontinue'
+			$WarningPreference = 'continue'
+			$InformationPreference = 'continue'
+			$ProgressPreference = 'continue'
+		}
+		'dev' {
+			$DebugPreference = 'continue'
+			$VerbosePreference = 'continue'
+			$WarningPreference = 'continue'
+			$InformationPreference = 'continue'
+			$ProgressPreference = 'continue'
+			$Dev = $true
+		}
+		
+		Default {
+			$DebugPreference = 'silentlycontinue'
+			$VerbosePreference = 'silentlycontinue'
+			$WarningPreference = 'continue'
+			$InformationPreference = 'silentlycontinue'
+			$ProgressPreference = 'continue'
+		}
+	}
+	return $Dev
 }
 #endregion
 
 #region initialization
-Import-Module -Name ActiveDirectory
-# try {
-# 	Import-Module -Name ActiveDirectory #TODO Bring it back
-# }
-# catch {
-# 	Write-Error "Unable to import ActiveDirectory module. Please make sure it is installed before proceeding" -ErrorAction stop
-# }
-Write-Verbose "Getting config.json"
-[Object]$JsonData = Get-Content "config.json" | ConvertFrom-Json
-if (!$JsonData) {
-	Write-Error "Unable to get config.json. Please make sure it is located in the same location as the script" -ErrorAction stop
+$Error.Clear()
+try {
+	Import-Module -Name ActiveDirectory -Force
+}
+catch {
+	Write-Error "Unable to import ActiveDirectory module. Please make sure it is installed before proceeding"
+	$Error
+	Read-Host
+	exit
 }
 
-Write-Verbose "Initializing Script"
+
+Write-Information "Getting config.json"
+try {
+	[Object]$JsonData = Get-Content "config.json" | ConvertFrom-Json
+}
+catch {
+	Write-Error "Unable to get config.json. Please make sure it is located in the same location as the script"
+	$Error
+	Read-Host
+	exit
+}
+
+try {
+	[bool]$Dev = Set-ScriptMode $JsonData.mode
+	if ($Dev) {
+		Write-Information "Dev mode initiated. Getting content from dev.json"
+		$JsonData = Get-Content "dev.json" | ConvertFrom-Json
+	}
+}
+catch {
+	$Error
+	Write-Error "Dev mode initiation failed" -ErrorAction Suspend
+	$Error.Clear()
+}
+
+
+Write-Information "Initializing Script"
 #endregion
 
-# try {
 #region transcript
-Write-Verbose "Checking log path validity"
-if (!($JsonData.logPath)) {
-	$JsonData.logPath = "."
+try {
+	Start-Transcript -Path $(Set-LogPath -Path $JsonData.logPath -FileType 'Log') -Force -NoClobber
 }
-Start-Transcript -Path $(Set-LogPath -Path $JsonData.logPath -FileType 'Log') -Force #-NoClobber TODO re-add the no clobber
+catch {
+	$Error
+	Write-Error "Unable to create log"
+	Read-Host
+	exit
+}
+
 Write-Verbose "Transcript started"
 
 #endregion
 
 #region data verification
 [object]$Json = Test-JSONData -JsonData $JsonData
+if ($Dev) {
+	try {
+		Write-Verbose "Removing csv"
+		Remove-Item $(Set-LogPath -Path $JsonData.logPath -FileType 'Csv') -Force
+	}
+	catch {  }
+}
 #endregion
 
 
@@ -621,20 +688,12 @@ $ProgCount = 0
 #endregion
 
 
-
-#TODO Remove this part
-try {
-	Remove-Item $(Set-LogPath -Path $JsonData.logPath -FileType 'Csv') -Force
-}
-catch {
-	
-}
-
 #starts checking each email one at a time
 $CsvData = foreach ($Email in $EmailData) {
 
-	Write-Debug "**************************************************************************************************************************************"
-
+	Write-Verbose ""
+	Write-Verbose "************************************************************************************************************************************"
+	Write-Verbose ""
 
 	Write-Debug "Clearing hashtable"
 	$AttributeHash.Clear()
@@ -642,12 +701,18 @@ $CsvData = foreach ($Email in $EmailData) {
 
 	Write-Debug "Incrementing $ProgCount by one"
 	$ProgCount++
-	Write-Progress $("Started processing email $ProgCount out of $EmailCount") #TODO change to write-progress
-	
+
+	if ($Dev) {
+		Write-Information $("Started processing email $ProgCount out of $EmailCount")
+	}
+ else {
+		Write-Progress $("Started processing email $ProgCount out of $EmailCount")
+	}
 
 
-	Write-Debug $("Calling Read-Email function")
+	Write-Verbose $("Calling Read-Email function")
 	$AttributeHash = Read-Email -Email $Email -Json $Json
+	
 	foreach ($item in $AttributeHash.Keys) {
 		Write-Debug $("Key: $item `t|`tValue: " + $AttributeHash[$item])
 	}
@@ -681,7 +746,7 @@ $CsvData = foreach ($Email in $EmailData) {
 		
 	foreach ($line in $ReturnHash.Keys) {
 		Write-Debug $("Adding $line = " + $ReturnHash[$line] + " to AttributeHash")
-		#TODO
+		
 		$AttributeHash.Add($line, $ReturnHash[$line])
 	}
 
@@ -703,19 +768,20 @@ $CsvData = foreach ($Email in $EmailData) {
 			Write-Debug $("Setting " + $AttributeHash.SamAccountName + " " + $Json.'property' + " to " + $AttributeHash.ID )
 
 			try {
-				#TODO
-				Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID }
+				if($Dev){
+					Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID } -WhatIf
+				} else {
+					Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID }
+				}
+				
 
 				$attSet = $true
 				$AttributeHash.Reason = ""
 				Write-Verbose $("Set " + $Json.'property' + " to " + $AttributeHash.ID + " for " + $AttributeHash.SamAccountName)
 			}
 			catch {
-				Write-Host "`n"
-		
-				$AttributeHash.Reason = $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName + ": $Error")
-				Write-Error $AttributeHash.Reason -ErrorAction Continue
-				$Error.Clear()
+				$AttributeHash.Reason = $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName)
+				Write-Error $AttributeHash.Reason
 				
 			}
 		}
@@ -734,41 +800,49 @@ $CsvData = foreach ($Email in $EmailData) {
 		
 	}
 	#Write-Debug $($AttributeHash | Format-Table)
-	#TODO Write-Debug $AttributeHash.EmailReceivedTime
+	#TODO 
 	$PSCustomObject = [pscustomobject]@{
-		"Email Date"                      = $AttributeHash.EmailReceivedTime
-		"Email Employee Name"             = $AttributeHash.Name
-		"Email Employee First Name"       = $AttributeHash.FN
-		"Email Employee Last Name"        = $AttributeHash.LN
-		"Email Employee ID"               = $AttributeHash.ID
-		"Email Employee Personnel Number" = $AttributeHash.PN
-		"Email Employee Job Title"        = $AttributeHash.Title
-		"Email Employee Type"             = $AttributeHash.Type
-		"Email Employee Location"         = $AttributeHash.Location
-		"Email Manager Name"              = $AttributeHash.ManagerName
-		"Email Manager Job Title"         = $AttributeHash.ManagerTitle
-		"Email Manager Personnel Number"  = $AttributeHash.ManagerPN
-		"Email Manager ID"                = $AttributeHash.ManagerID
-		" "                               = " "
-		"AD Account Matched"              = $AttributeHash.Matched
-		"AD Display Name"                 = $AttributeHash.DisplayName
-		"AD Given Name"                   = $AttributeHash.GivenName
-		"AD Surname"                      = $AttributeHash.Surname
-		"AD Location"                     = $AttributeHash.Office
-		"AD Username"                     = $AttributeHash.SamAccountName
-		"AD Created Date"                 = $AttributeHash.Created
-		"Manager DistinguishedName"       = $AttributeHash.ManagerDN
-		$($Json.property + " set")        = $AttributeHash.Modified
-		"Reason"                          = $AttributeHash.Reason
+		"Email Date"                         = $AttributeHash.EmailReceivedTime
+		"Email Employee Name"                = $AttributeHash.Name
+		"Email Employee First Name"          = $AttributeHash.FN
+		"Email Employee Last Name"           = $AttributeHash.LN
+		"Email Employee ID"                  = $AttributeHash.ID
+		"Email Employee Personnel Number"    = $AttributeHash.PN
+		"Email Employee Job Title"           = $AttributeHash.Title
+		"Email Employee Type"                = $AttributeHash.Type
+		"Email Employee Location"            = $AttributeHash.Location
+		"Email Manager Name"                 = $AttributeHash.ManagerName
+		"Email Manager Job Title"            = $AttributeHash.ManagerTitle
+		"Email Manager Personnel Number"     = $AttributeHash.ManagerPN
+		"Email Manager ID"                   = $AttributeHash.ManagerID
+		" "                                  = " "
+		"AD Account Matched"                 = $AttributeHash.Matched
+		"AD Display Name"                    = $AttributeHash.DisplayName
+		"AD Given Name"                      = $AttributeHash.GivenName
+		"AD Surname"                         = $AttributeHash.Surname
+		"AD Location"                        = $AttributeHash.Office
+		"AD Username"                        = $AttributeHash.SamAccountName
+		"AD Created Date"                    = $AttributeHash.Created
+		"Manager DistinguishedName"          = $AttributeHash.ManagerDN
+		$($Json.property + " set by script") = $AttributeHash.Modified
+		"Reason"                             = $AttributeHash.Reason
 	}
 	$PSCustomObject
 }
-Write-Verbose "All emails processed. Exporting to CSV"
-#Creates Custom Object to Export to Excel.
 
-#Exports to excel
+try {
+	Write-Information "All emails processed. Exporting data to Csv"
 
-Write-Debug "Calling Set-LogPath function"
-$CsvData | Select-Object -Property * | Export-Csv -Path $(Set-LogPath -FileType Csv -Path $Json.'logPath') -NoTypeInformation -Append
+	Write-Verbose "Calling Set-LogPath function"
+	$CsvData | Select-Object -Property * | Export-Csv -Path $(Set-LogPath -FileType Csv -Path $Json.'logPath') -NoTypeInformation -Append
+	Stop-Transcript
+} catch {
+	$Error
+	Write-Error "Unable to export to Csv" -ErrorAction Suspend
+	Stop-Transcript
+}
 
-Read-Host "Done ("
+
+if (!($Dev)) {
+	Read-Host "Done ("
+}

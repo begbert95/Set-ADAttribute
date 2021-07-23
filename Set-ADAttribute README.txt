@@ -4,3 +4,15 @@ This powershell script attempts to automatically set an attribute in Active Dire
 
 This script must be run normally, by a user with the access to change the attribute. Running it as an administrator will cause the script to fail.
 
+Configuration settings
+
+1. logDetail - determines what is output to the console and logs
+    a. Success - Only outputs successful information
+    b. Error - Outputs success and failure information
+    c. ErrorOnly - Only displays errors
+    d. Warnings - Displays warnings, errors, and successes
+    e. Information - Information to help understand what a script is doing as well as warnings, errors, and successes
+    f. Verbose - Displays output that is useful for understanding the internal workings of the script, information, warnings, errors, and successes
+    g. Debug - Debug messages can contain internal details necessary for deep troubleshooting, verbose, information, warnings, errors, and successes
+    h. Progress - Only displays the progress of the script
+    h. Silent - Absolutely nothing is displayed on the screen

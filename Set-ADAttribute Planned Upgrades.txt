@@ -3,12 +3,8 @@ Investigate non-conditional statements
 Filter entries so that no duplicates are added to the CSV
 Clean up old comments
 Add error handling
-Improve accuracy for AD search - check against display name
-Add config files to improve functionality
 Fix all write-statements to be in line with the official documentation
 Have Read-Email accept array of possible matches, maybe -match or -in
 Key: | Value: call should be a table
 Should probably just be an ordered table
 Email failed ones/or each with specific subject
-
-Slight bug that causes failure when multiple accounts are returned

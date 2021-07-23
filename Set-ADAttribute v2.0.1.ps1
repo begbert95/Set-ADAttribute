@@ -41,8 +41,8 @@ Pulls information from email to update AD accounts and provide logging
 
 #region settings
 Set-StrictMode -Version Latest
-$DebugPreference = 'continue'
-$VerbosePreference = 'continue'
+$DebugPreference = 'silentlycontinue'
+$VerbosePreference = 'silentlycontinue'
 $ErrorActionPreference = 'stop'
 #endregion
 
@@ -246,7 +246,6 @@ function Search-BothNames {
 		[string]$LastName
 	)
 
-	$hash = New-Object -TypeName hashtable
 	$ReturnList = New-Object -TypeName System.Collections.ArrayList
 	$gn = "*" + $FirstName + "*"
 	$sn = "*" + $LastName + "*"
@@ -255,26 +254,11 @@ function Search-BothNames {
 	Write-Verbose $("Searching for users with firstname " + $FirstName + " and lastname " + $LastName)
 	$ReturnList += Get-ADUser -Filter { GivenName -like $gn -and Surname -like $sn } -Properties $Properties | Select-Object $Properties
 
-	
-	
 
-	# foreach ($user in $UserList) {
-	# 	$hash.Clear()
-	# 	Write-Debug "`n"
-	# 	Write-Debug $("Processing " + $user.SamAccountName + " from Search-BothNames")
-
-	# 	foreach ($prop in $Properties) {
-
-	# 		Write-Debug $("Adding $prop = " + $user.$prop + " to a temporary hashtable for " + $user.SamAccountName)
-	# 		$hash.Add($prop, $user.$prop)
-	# 	}
-	# 	Write-Debug "Adding user to the return list"
-	# 	Write-Debug $("Hash " + $hash.SamAccountName)
-	# 	$ReturnList.Add($hash) | Out-Null
-	# }
 	foreach ($pers in $ReturnList) {
 		Write-Debug $pers.SamAccountName
 	}
+
 	Write-Debug ""
 	Write-Debug $("Returning " + $ReturnList.Count + " users of type " + $ReturnList.GetType() + " from Search-BothNames")
 	
@@ -315,7 +299,6 @@ function Start-BasicSearch {
 					Write-Debug $("Adding $prop as empty value to hashtable")
 					$ReturnHash.Add($prop, "") 
 				}
-
 			}
 
 			return , [hashtable]$ReturnHash
@@ -580,9 +563,9 @@ Import-Module -Name ActiveDirectory
 # catch {
 # 	Write-Error "Unable to import ActiveDirectory module. Please make sure it is installed before proceeding" -ErrorAction stop
 # }
-#TODO
+
 Write-Verbose "Getting config.json"
-[Object]$JsonData = Get-Content "dev.json" | ConvertFrom-Json
+[Object]$JsonData = Get-Content "config.json" | ConvertFrom-Json
 if (!$JsonData) {
 	Write-Error "Unable to get config.json. Please make sure it is located in the same location as the script" -ErrorAction stop
 }
@@ -596,7 +579,7 @@ Write-Verbose "Checking log path validity"
 if (!($JsonData.logPath)) {
 	$JsonData.logPath = "."
 }
-Start-Transcript -Path $(Set-LogPath -Path $JsonData.logPath -FileType 'Log') -Force #-NoClobber TODO re-add the no clobber
+Start-Transcript -Path $(Set-LogPath -Path $JsonData.logPath -FileType 'Log') -Force -NoClobber
 Write-Verbose "Transcript started"
 
 #endregion
@@ -625,13 +608,6 @@ $ProgCount = 0
 
 
 
-#TODO Remove this part
-try {
-	Remove-Item $(Set-LogPath -Path $JsonData.logPath -FileType 'Csv') -Force
-}
-catch {
-	
-}
 
 #starts checking each email one at a time
 $CsvData = foreach ($Email in $EmailData) {
@@ -645,7 +621,7 @@ $CsvData = foreach ($Email in $EmailData) {
 
 	Write-Debug "Incrementing $ProgCount by one"
 	$ProgCount++
-	Write-Verbose $("Started processing email $ProgCount out of $EmailCount") #TODO change to write-progress
+	Write-Progress $("Started processing email $ProgCount out of $EmailCount")
 	
 
 
@@ -706,8 +682,7 @@ $CsvData = foreach ($Email in $EmailData) {
 			Write-Debug $("Setting " + $AttributeHash.SamAccountName + " " + $Json.'property' + " to " + $AttributeHash.ID )
 
 			try {
-				#TODO
-				Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID } -WhatIf
+				Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID }
 
 				$attSet = $true
 				$AttributeHash.Reason = ""
@@ -771,4 +746,4 @@ Write-Verbose "All emails processed. Exporting to CSV"
 Write-Debug "Calling Set-LogPath function"
 $CsvData | Select-Object -Property * | Export-Csv -Path $(Set-LogPath -FileType Csv -Path $Json.'logPath') -NoTypeInformation -Append
 
-#TODO Read-Host "Done ("
+Read-Host "Done ("
