@@ -1,7 +1,7 @@
 
 <#PSScriptInfo
 
-.VERSION 2.0
+.VERSION 2.0.1
 
 .GUID 7daec28b-fcd0-423d-93f6-157a3156f1d3
 
@@ -26,21 +26,23 @@
 .EXTERNALSCRIPTDEPENDENCIES 
 
 .RELEASENOTES
+Fixed Multiple returns bug
 
+#> 
 
-#>
+#Requires -Module ActiveDirectory
 
 <# 
 
 .DESCRIPTION 
- test 
+Pulls information from email to update AD accounts and provide logging
 
 #> 
+
 #region settings
-#Requires -Module ActiveDirectory
 Set-StrictMode -Version Latest
-$DebugPreference = 'silentlycontinue'
-$VerbosePreference = 'silentlycontinue'
+$DebugPreference = 'continue'
+$VerbosePreference = 'continue'
 $ErrorActionPreference = 'stop'
 #endregion
 
@@ -179,13 +181,13 @@ function Search-Managers {
 		if ($user.Manager -eq $Manager) {
 			$ReturnList.Add($user) | Out-Null
 		}
-		# foreach ($item in $user.Keys) {
-		# 	Write-Debug "Key: $item"
-		# 	Write-Debug $("Value: " + $user[$item])
-		# 	if ($user[$item] -eq $Manager)
-		# }
+		
 	}
-	
+	# foreach ($item in $user.Keys) {
+	# 	Write-Debug "Key: $item"
+	# 	Write-Debug $("Value: " + $user[$item])
+	# 	if ($user[$item] -eq $Manager)
+	# }
 	# $FilteredList = $UserList | Where-Object { Manager -eq $Manager }
 	# foreach ($user in $FilteredList) {
 	# 	Write-Debug $user.SamAccountName
@@ -251,26 +253,26 @@ function Search-BothNames {
 
 	
 	Write-Verbose $("Searching for users with firstname " + $FirstName + " and lastname " + $LastName)
-	$UserList = Get-ADUser -Filter { GivenName -like $gn -and Surname -like $sn } -Properties $Properties | Select-Object $Properties
+	$ReturnList += Get-ADUser -Filter { GivenName -like $gn -and Surname -like $sn } -Properties $Properties | Select-Object $Properties
 
 	
 	
 
-	foreach ($user in $UserList) {
-		$hash.Clear()
-		Write-Debug "`n"
-		Write-Debug $("Processing " + $user.SamAccountName + " from Search-BothNames")
+	# foreach ($user in $UserList) {
+	# 	$hash.Clear()
+	# 	Write-Debug "`n"
+	# 	Write-Debug $("Processing " + $user.SamAccountName + " from Search-BothNames")
 
-		foreach ($prop in $Properties) {
+	# 	foreach ($prop in $Properties) {
 
-			Write-Debug $("Adding $prop = " + $user.$prop + " to a temporary hashtable for " + $user.SamAccountName)
-			$hash.Add($prop, $user.$prop)
-		}
-		Write-Debug "Adding user to the return list"
-		Write-Debug $("Hash "+ $hash.SamAccountName)
-		$ReturnList.Add($hash) | Out-Null
-	}
-	foreach ($pers in $ReturnList){
+	# 		Write-Debug $("Adding $prop = " + $user.$prop + " to a temporary hashtable for " + $user.SamAccountName)
+	# 		$hash.Add($prop, $user.$prop)
+	# 	}
+	# 	Write-Debug "Adding user to the return list"
+	# 	Write-Debug $("Hash " + $hash.SamAccountName)
+	# 	$ReturnList.Add($hash) | Out-Null
+	# }
+	foreach ($pers in $ReturnList) {
 		Write-Debug $pers.SamAccountName
 	}
 	Write-Debug ""
@@ -578,8 +580,9 @@ Import-Module -Name ActiveDirectory
 # catch {
 # 	Write-Error "Unable to import ActiveDirectory module. Please make sure it is installed before proceeding" -ErrorAction stop
 # }
+#TODO
 Write-Verbose "Getting config.json"
-[Object]$JsonData = Get-Content "config.json" | ConvertFrom-Json
+[Object]$JsonData = Get-Content "dev.json" | ConvertFrom-Json
 if (!$JsonData) {
 	Write-Error "Unable to get config.json. Please make sure it is located in the same location as the script" -ErrorAction stop
 }
@@ -642,7 +645,7 @@ $CsvData = foreach ($Email in $EmailData) {
 
 	Write-Debug "Incrementing $ProgCount by one"
 	$ProgCount++
-	Write-Progress $("Started processing email $ProgCount out of $EmailCount") #TODO change to write-progress
+	Write-Verbose $("Started processing email $ProgCount out of $EmailCount") #TODO change to write-progress
 	
 
 
@@ -704,18 +707,15 @@ $CsvData = foreach ($Email in $EmailData) {
 
 			try {
 				#TODO
-				Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID }
+				Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID } -WhatIf
 
 				$attSet = $true
 				$AttributeHash.Reason = ""
 				Write-Verbose $("Set " + $Json.'property' + " to " + $AttributeHash.ID + " for " + $AttributeHash.SamAccountName)
 			}
 			catch {
-				Write-Host "`n"
-		
-				$AttributeHash.Reason = $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName + ": $Error")
-				Write-Error $AttributeHash.Reason -ErrorAction Continue
-				$Error.Clear()
+				$AttributeHash.Reason = $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName)
+				Write-Error $AttributeHash.Reason
 				
 			}
 		}
@@ -734,32 +734,32 @@ $CsvData = foreach ($Email in $EmailData) {
 		
 	}
 	#Write-Debug $($AttributeHash | Format-Table)
-	#TODO Write-Debug $AttributeHash.EmailReceivedTime
+	#TODO 
 	$PSCustomObject = [pscustomobject]@{
-		"Email Date"                      = $AttributeHash.EmailReceivedTime
-		"Email Employee Name"             = $AttributeHash.Name
-		"Email Employee First Name"       = $AttributeHash.FN
-		"Email Employee Last Name"        = $AttributeHash.LN
-		"Email Employee ID"               = $AttributeHash.ID
-		"Email Employee Personnel Number" = $AttributeHash.PN
-		"Email Employee Job Title"        = $AttributeHash.Title
-		"Email Employee Type"             = $AttributeHash.Type
-		"Email Employee Location"         = $AttributeHash.Location
-		"Email Manager Name"              = $AttributeHash.ManagerName
-		"Email Manager Job Title"         = $AttributeHash.ManagerTitle
-		"Email Manager Personnel Number"  = $AttributeHash.ManagerPN
-		"Email Manager ID"                = $AttributeHash.ManagerID
-		" "                               = " "
-		"AD Account Matched"              = $AttributeHash.Matched
-		"AD Display Name"                 = $AttributeHash.DisplayName
-		"AD Given Name"                   = $AttributeHash.GivenName
-		"AD Surname"                      = $AttributeHash.Surname
-		"AD Location"                     = $AttributeHash.Office
-		"AD Username"                     = $AttributeHash.SamAccountName
-		"AD Created Date"                 = $AttributeHash.Created
-		"Manager DistinguishedName"       = $AttributeHash.ManagerDN
-		$($Json.property + " set")        = $AttributeHash.Modified
-		"Reason"                          = $AttributeHash.Reason
+		"Email Date"                         = $AttributeHash.EmailReceivedTime
+		"Email Employee Name"                = $AttributeHash.Name
+		"Email Employee First Name"          = $AttributeHash.FN
+		"Email Employee Last Name"           = $AttributeHash.LN
+		"Email Employee ID"                  = $AttributeHash.ID
+		"Email Employee Personnel Number"    = $AttributeHash.PN
+		"Email Employee Job Title"           = $AttributeHash.Title
+		"Email Employee Type"                = $AttributeHash.Type
+		"Email Employee Location"            = $AttributeHash.Location
+		"Email Manager Name"                 = $AttributeHash.ManagerName
+		"Email Manager Job Title"            = $AttributeHash.ManagerTitle
+		"Email Manager Personnel Number"     = $AttributeHash.ManagerPN
+		"Email Manager ID"                   = $AttributeHash.ManagerID
+		" "                                  = " "
+		"AD Account Matched"                 = $AttributeHash.Matched
+		"AD Display Name"                    = $AttributeHash.DisplayName
+		"AD Given Name"                      = $AttributeHash.GivenName
+		"AD Surname"                         = $AttributeHash.Surname
+		"AD Location"                        = $AttributeHash.Office
+		"AD Username"                        = $AttributeHash.SamAccountName
+		"AD Created Date"                    = $AttributeHash.Created
+		"Manager DistinguishedName"          = $AttributeHash.ManagerDN
+		$($Json.property + " set by script") = $AttributeHash.Modified
+		"Reason"                             = $AttributeHash.Reason
 	}
 	$PSCustomObject
 }
@@ -771,4 +771,4 @@ Write-Verbose "All emails processed. Exporting to CSV"
 Write-Debug "Calling Set-LogPath function"
 $CsvData | Select-Object -Property * | Export-Csv -Path $(Set-LogPath -FileType Csv -Path $Json.'logPath') -NoTypeInformation -Append
 
-Read-Host "Done ("
+#TODO Read-Host "Done ("

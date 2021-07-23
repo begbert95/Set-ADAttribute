@@ -1,6 +1,9 @@
 # Prerequisites
 *.json
+*.config
 *.csv
+*.log
 \logs
+\devlogs
 \previous versions
-
+.gitignore
