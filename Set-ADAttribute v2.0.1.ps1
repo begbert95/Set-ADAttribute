@@ -744,6 +744,6 @@ Write-Verbose "All emails processed. Exporting to CSV"
 #Exports to excel
 
 Write-Debug "Calling Set-LogPath function"
-$CsvData | Select-Object -Property * | Export-Csv -Path $(Set-LogPath -FileType Csv -Path $Json.'logPath') -NoTypeInformation -Append
+$CsvData | Select-Object -Property * | Export-Csv -Path $(Set-LogPath -FileType Csv -Path $Json.'logPath') -NoTypeInformation -Append -Force
 
 Read-Host "Done ("

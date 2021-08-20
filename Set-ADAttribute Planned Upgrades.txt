@@ -8,3 +8,4 @@ Have Read-Email accept array of possible matches, maybe -match or -in
 Key: | Value: call should be a table
 Should probably just be an ordered table
 Email failed ones/or each with specific subject
+Add multiple subjects to email check
