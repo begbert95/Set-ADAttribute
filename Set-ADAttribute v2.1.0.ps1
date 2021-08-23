@@ -278,34 +278,74 @@ function Get-EmailData {
     Write-Debug $MailboxName
     Write-Debug $MailboxFolder
 
-    try {
-        Write-Verbose -Message  "Checking if a mailbox name was selected"
-        if ($MailboxName) {
-            Write-Verbose -Message  "Searching Inbox of $MailboxName"
+    if ($MailboxName) {
+        try {
+            Write-Verbose -Message  "Getting Inbox of $MailboxName"
             $Mailbox = $NameSpace.Stores[$MailboxName].GetRootFolder()
             $Inbox = $Mailbox.Folders["Inbox"]
-            Write-Verbose -Message  "Checking Inbox for the folder $MailboxFolder"
-            $TargetFolder = $Inbox.Folders($MailboxFolder)
         }
-        elseif ($MailboxFolder) {
-            Write-Verbose -Message  "Checking default mailbox for the folder $MailboxFolder"
-            Add-type -assembly 'Microsoft.Office.Interop.Outlook' | out-null
-            $olFolders = 'Microsoft.Office.Interop.Outlook.olDefaultFolders' -as [type]
-            $Inbox = $namespace.getDefaultFolder($olFolders::olFolderInBox)
-            $TargetFolder = $Inbox.Folders($MailboxFolder)
+        catch {
+            Exit-Script $("Unable to import $MailboxName") -PSErrorMessage $Error[0]
         }
-        else {
+    }
+    else {
+        try {
             Write-Verbose -Message  "Importing default mailbox"
             Add-type -assembly 'Microsoft.Office.Interop.Outlook' | out-null
             $olFolders = 'Microsoft.Office.Interop.Outlook.olDefaultFolders' -as [type]
-            $TargetFolder = $namespace.getDefaultFolder($olFolders::olFolderInBox)
+            $Inbox = $namespace.getDefaultFolder($olFolders::olFolderInBox)
+        }
+        catch {
+            Exit-Script "Unable to import default mailbox" -PSErrorMessage $Error[0]
         }
     }
-    catch {
-        Exit-Script "Unable to locate specified mailbox or folder. Please verify that the names provided properly match the structure" -PSErrorMessage $Error[0]
+
+    if ($MailboxFolder) {
+        try {
+            Write-Verbose -Message  "Checking Inbox for the folder $MailboxFolder"
+            $TargetFolder = $Inbox.Folders($MailboxFolder)
+        }
+        catch {
+            Exit-Script "Problem importing the folder $MailboxFolder" -PSErrorMessage $Error[0]
+        }
     }
+    else {
+        $TargetFolder = $Inbox
+    }
+
+
+    # try {
+    #     Write-Verbose -Message  "Checking if a mailbox name was selected"
+    #     if ($MailboxName -and $MailboxFolder) {
+        
+    #         Write-Verbose -Message  "Searching Inbox of $MailboxName"
+    #         $Mailbox = $NameSpace.Stores[$MailboxName].GetRootFolder()
+    #         $Inbox = $Mailbox.Folders["Inbox"]
+    #         Write-Verbose -Message  "Checking Inbox for the folder $MailboxFolder"
+    #         $TargetFolder = $Inbox.Folders($MailboxFolder)
+
+            
+    #     }
+    #     elseif ($MailboxFolder) {
+    #         Write-Verbose -Message  "Checking default mailbox for the folder $MailboxFolder"
+    #         Add-type -assembly 'Microsoft.Office.Interop.Outlook' | out-null
+    #         $olFolders = 'Microsoft.Office.Interop.Outlook.olDefaultFolders' -as [type]
+    #         $Inbox = $namespace.getDefaultFolder($olFolders::olFolderInBox)
+    #         $TargetFolder = $Inbox.Folders($MailboxFolder)
+    #     }
+    #     else {
+    #         Write-Verbose -Message  "Importing default mailbox"
+    #         Add-type -assembly 'Microsoft.Office.Interop.Outlook' | out-null
+    #         $olFolders = 'Microsoft.Office.Interop.Outlook.olDefaultFolders' -as [type]
+    #         $TargetFolder = $namespace.getDefaultFolder($olFolders::olFolderInBox)
+    #     }
+    # }
+    # catch {
+    #     Exit-Script "Unable to locate specified mailbox or folder. Please verify that the names provided properly match the structure" -PSErrorMessage $Error[0]
+    # }
+
     Write-Line -Message "Exiting Get-EmailData function" -Character " " -AsHeading
-    $TargetFolder
+    return $TargetFolder
 }
 function Search-EmailData {
     param (
@@ -749,7 +789,8 @@ function Move-Email {
 
     try {
         Write-Verbose "Moving email..."
-        $Email.Move($Destination)
+        $Email.Move($Destination) | Out-Null
+        Write-Output "Email was moved out"
     }
     catch {
         Write-Error $("Unable to move email to the specified folder: `n`n" + $Error[0])
@@ -996,8 +1037,10 @@ switch ($Mode) {
     'prod' {
         $InformationPreference = 'Continue'
         $ProgressPreference = 'Continue'
+        $VerbosePreference = 'Continue'
+        break
     }
-    'auto' {}
+    'auto' { $ProgressPreference = 'Continue' ; break }
     Default {}
 }
 
@@ -1136,7 +1179,9 @@ foreach ($item in $EmailData) {
                 
                 $AttributeHash.Reason += $("; Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName)
                 $Failures.Add($AttributeHash) | Out-Null
-                Write-Error -Message $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName)
+                Write-Error -Message $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName + "`n`n" + $Error[0])
+                $AttributeHash[($Json.property + " set by script")] = $false
+                $MoveEmail = $false
             }
         }
     }
@@ -1146,14 +1191,9 @@ foreach ($item in $EmailData) {
         $Failures.Add($AttributeHash) | Out-Null
     }
 
-
-    if (($MoveEmail -eq $true) -and ($null -ne $Json.moveToFolder)) {
     
-        $MoveSplat = @{
-            Email       = $item
-            Destination = Get-EmailData -NameSpace $OutlookNamespace -MailboxName $Json.mailboxName -MailboxFolder $Json.moveToFolder
-        }
-        Move-Email @MoveSplat
+    if (($MoveEmail -eq $true) -and $Json.moveToFolder) {
+        Move-Email -Email $item -Destination $(Get-EmailData -NameSpace $OutlookNamespace -MailboxName $Json.mailboxName -MailboxFolder $Json.moveToFolder)
     }
 
 
