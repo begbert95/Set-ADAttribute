@@ -242,7 +242,7 @@ function Write-HashTable {
     Write-Verbose -Message  ""
 }
 
-#endregion PSLogging
+#endregion Logging
 
 
 #region ************************************************	Functions	**********************************************************************
@@ -508,7 +508,7 @@ function Search-DisplayName {
     )
     Write-Line "Started Search-DisplayName function" -Character " " -AsHeading
 
-    Write-Verbose -Message  ("Searching display names for $Name...")
+    Write-Verbose -Message  $("Searching display names for $Name...")
     $ReturnList = [List[ADUser]]::new()
 	
     $ReturnData = Get-ADUser -Filter { DisplayName -like $Name } -Properties $Properties
@@ -893,6 +893,7 @@ function Set-ScriptMode {
     Write-Information "Setting mode to $mode"
     
     Write-Verbose "Exiting Set-ScriptMode function"
+    $Mode
 }
 
 #endregion
@@ -913,38 +914,38 @@ catch {
 
 try {
     Write-Information "Getting config.json" -InformationAction Continue
-    [Object]$JsonData = Get-Content "config.json" | ConvertFrom-Json
+    $JsonData = Get-Content "config.json" | ConvertFrom-Json
 }
 catch {
-    Exit-Script "Unable to get config.json. Please make sure it is located in the same location as the script"  -PSErrorMessage $Error[0]
+    Exit-Script -Message "Unable to get config.json. Please make sure it is located in the same location as the script"  -PSErrorMessage $Error[0]
 }
 
 
-try {
-    $Mode = $JsonData.mode
-    switch ($Mode) {
-        'prod' {
-            $VerbosePreference = 'silentlycontinue'
-            $InformationPreference = 'continue'
-        }
-        'dev' {
-            $DebugPreference = 'continue'
-            $VerbosePreference = 'continue'
-            $InformationPreference = 'continue'
-        }
-        'auto' {
-            $VerbosePreference = 'silentlycontinue'
-            $InformationPreference = 'silentlycontinue'
-        }
+# try {
+#     $Mode = $JsonData.mode
+#     switch ($Mode) {
+#         'prod' {
+#             $VerbosePreference = 'silentlycontinue'
+#             $InformationPreference = 'continue'
+#         }
+#         'dev' {
+#             $DebugPreference = 'continue'
+#             $VerbosePreference = 'continue'
+#             $InformationPreference = 'continue'
+#         }
+#         'auto' {
+#             $VerbosePreference = 'silentlycontinue'
+#             $InformationPreference = 'silentlycontinue'
+#         }
 		
-        Default {
-            Exit-Script "Unknown mode. Please select 'prod', 'dev', or 'auto'" -PSErrorMessage $Error[0]
-        }
-    }
-}
-catch {
-    Exit-Script "Script failed with unknown error when trying to set the mode" -PSErrorMessage $Error[0]
-}
+#         Default {
+#             Exit-Script "Unknown mode. Please select 'prod', 'dev', or 'auto'" -PSErrorMessage $Error[0]
+#         }
+#     }
+# }
+# catch {
+#     Exit-Script "Script failed with unknown error when trying to set the mode" -PSErrorMessage $Error[0]
+# }
 
 Write-Information "Initializing Script"
 #endregion
@@ -974,14 +975,30 @@ catch {
 #region data verification
 [object]$Json = Test-JSONData -JsonData $JsonData -LogPath $LogPath
 
-if ($Mode -eq 'Dev') {
-    try {
-        Write-Debug -Message  "Removing csv"
-        Remove-Item $CsvPath -Force
+
+$Mode = Set-ScriptMode -Mode $Json.mode
+
+switch ($Mode) {
+    'dev' { 
+        $DebugPreference = 'Continue'
+        $VerbosePreference = 'Continue'
+        $InformationPreference = 'Continue'
+        $ProgressPreference = 'SilentlyContinue'
+        try {
+            Write-Debug -Message  "Removing csv"
+            Remove-Item $CsvPath -Force
+        }
+        catch { 
+            Exit-Script "Unable to remove previous csv" -PSErrorMessage $Error[0]
+        }
+        break
     }
-    catch { 
-        Exit-Script "Unable to remove previous csv" -PSErrorMessage $Error[0]
+    'prod' {
+        $InformationPreference = 'Continue'
+        $ProgressPreference = 'Continue'
     }
+    'auto' {}
+    Default {}
 }
 
 #endregion
@@ -1005,14 +1022,14 @@ $OutlookNamespace = Import-Outlook
 
 $TargetFolder = Get-EmailData -NameSpace $OutlookNamespace -MailboxName $Json.mailboxName -MailboxFolder $Json.mailboxFolder
 
-$splat = @{
+$SearchSplat = @{
     TargetFolder = $TargetFolder
     Sender       = $Json.searchSender
     Subject      = $Json.searchSubject
     WithinDays   = $Json.daysAgo
 }
 
-$EmailData = Search-EmailData @splat
+$EmailData = Search-EmailData @SearchSplat
 $EmailCount = $EmailData.Count
 Write-Verbose -Message  "Final email count: $EmailCount"
 $ProgCount = 0
@@ -1032,8 +1049,8 @@ foreach ($item in $EmailData) {
 
     switch ($Mode) {
         "Dev" {	Write-Verbose -Message $("Started processing email $ProgCount out of $EmailCount"); break }
-        "Prod" { Write-Progress $("Started processing email $ProgCount out of $EmailCount"); break }
-        "Auto" { Write-Output -Message $("Started processing email $ProgCount out of $EmailCount"); break }
+        "Prod" { Write-Progress $("Processing email $ProgCount out of $EmailCount"); break }
+        "Auto" { Write-Progress $("Processing email $ProgCount out of $EmailCount"); break }
         Default { }#Add-Content -Path $LogPath -Value $("Started processing email $ProgCount out of $EmailCount") }
     }
     #endregion ********************		Progress Tracking	********************
@@ -1043,6 +1060,7 @@ foreach ($item in $EmailData) {
     Write-Verbose -Message  "Clearing hashtable"
     $AttributeHash.Clear()
 
+    Write-Progress -Activity $("Processing email $ProgCount out of $EmailCount") -CurrentOperation "Reading email"
     Write-Verbose -Message  $("Calling Read-Email function")
     $AttributeHash = $(Read-Email -Email $Email -Json $Json)
 	
@@ -1051,6 +1069,7 @@ foreach ($item in $EmailData) {
 
 
     #region ********************	Manager		********************
+    Write-Progress -Activity $("Processing email $ProgCount out of $EmailCount") -CurrentOperation "Getting manager from the ID in the email..."
     Write-Verbose -Message  "Calling Get-Manager function"
     $Manager = [Microsoft.ActiveDirectory.Management.ADAccount]::new()
     $Manager = Get-Manager -Attribute $Json.'property' -ID $AttributeHash.ManagerID
@@ -1067,17 +1086,19 @@ foreach ($item in $EmailData) {
 
 	
     #region ********************	search		********************
+    Write-Progress -Activity $("Processing email $ProgCount out of $EmailCount") -CurrentOperation "Searching for the correct user..."
     Write-Verbose -Message  "Calling Start-Search function"
     $AttributeHash.Add("Matched", $false) | Out-Null
     Start-Search -AttributeHash $AttributeHash -Properties $PropertyArray
     Write-Line -Character "*" -ForegroundColor "Magenta"
-    Write-HashTable -HashTable $AttributeHash -Verbose
+    Write-HashTable -HashTable $AttributeHash
     Write-Line -Character "*" -ForegroundColor "Magenta"
     #endregion ********************	search		********************
 
 	
     if ($AttributeHash.SamAccountName) {
 
+        Write-Progress -Activity $("Processing email $ProgCount out of $EmailCount") -CurrentOperation $("Attempting to set " + $Json.property)
         Write-Verbose -Message $("Matched " + $AttributeHash.Name + " to " + $AttributeHash.SamAccountName)
         $AttributeHash.Matched = $true
 
@@ -1085,7 +1106,7 @@ foreach ($item in $EmailData) {
         if ($AttributeHash.($Json.'property')) {
             if ($AttributeHash.($Json.'property') -eq $AttributeHash.ID) {
                 $AttributeHash.Reason += $("; " + $Json.'property' + " already set for " + $AttributeHash.SamAccountName)
-                Write-Verbose -Message $($Json.'property' + " already set for " + $AttributeHash.SamAccountName)
+                Write-Output $($Json.'property' + " already set for " + $AttributeHash.SamAccountName)
                 $MoveEmail = $true
             }
             else {
@@ -1101,7 +1122,7 @@ foreach ($item in $EmailData) {
             Write-Verbose -Message  $("Setting " + $AttributeHash.SamAccountName + " " + $Json.'property' + " to " + $AttributeHash.ID )
 
             try {
-                if ($Mode = 'Dev') {
+                if ($Mode -eq 'Dev') {
                     Set-ADUser $AttributeHash.SamAccountName -Add @{$($Json.'property') = $AttributeHash.ID } -WhatIf
                 }
                 else {
@@ -1109,7 +1130,7 @@ foreach ($item in $EmailData) {
                     $MoveEmail = $true
                 }
                 $AttributeHash[($Json.property + " set by script")] = $true
-                Write-Verbose -Message $("Set " + $Json.'property' + " to " + $AttributeHash.ID + " for " + $AttributeHash.SamAccountName)
+                Write-Output $("Set " + $Json.'property' + " to " + $AttributeHash.ID + " for " + $AttributeHash.SamAccountName)
             }
             catch {
                 
@@ -1128,16 +1149,16 @@ foreach ($item in $EmailData) {
 
     if (($MoveEmail -eq $true) -and ($null -ne $Json.moveToFolder)) {
     
-        $Subject = $Email.Subject
         $MoveSplat = @{
-            Email   = $item
+            Email       = $item
             Destination = Get-EmailData -NameSpace $OutlookNamespace -MailboxName $Json.mailboxName -MailboxFolder $Json.moveToFolder
         }
         Move-Email @MoveSplat
     }
 
 
-    Write-HashTable $AttributeHash -Verbose
+    Write-HashTable $AttributeHash
+    Write-Progress -Activity $("Processing email $ProgCount out of $EmailCount") -CurrentOperation "Saving data to export"
 
     $CsvData += [PSCustomObject]$AttributeHash
 }
@@ -1150,7 +1171,7 @@ try {
     Stop-Transcript
 }
 catch {
-    Write-Error -Message $("Error exporting to Csv" + $Error[0])
+    Write-Error -Message $("Error exporting to Csv`n`n" + $Error[0])
 }
 
 try {
@@ -1171,17 +1192,14 @@ catch {
 
 switch ($Mode) {
     "Dev" { 
-        #Add-Content -Path $LogPath -Value $("Total time: " + $(Stop-TimeLog -Time $Start))
         Invoke-Item $CsvPath; break 
     }
     "Prod" { 
-        #Add-Content -Path $LogPath -Value $("Total time: " + $(Stop-TimeLog -Time $Start))
         Read-Host "Done ("; break 
     }
-    "Automation" { 
-        #Write-LogInfo $("Total time: " + $(Stop-TimeLog -Time $Start)) -LogPath $LogPath
+    "Auto" { 
         Invoke-Item -Path $LogPath; break 
     }
     Default {}
 }
-#endregion
+#endregion ****************** Cleanup *******************************
