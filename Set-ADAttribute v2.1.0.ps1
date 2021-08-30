@@ -74,10 +74,10 @@ Function Exit-Script {
 
     Write-Output ""
     Write-Error -Message $Message
-    Write-Output ""
+    Write-Output "`n"
     if ($PSErrorMessage) {
         Write-Error $PSErrorMessage
-        Write-Output ""
+        Write-Output "`n"
     }
     Stop-Transcript
     Read-Host "Press 'Enter' to exit"
@@ -121,7 +121,7 @@ function Write-Line {
         [Parameter(Mandatory = $false, Position = 5)][string]$BackgroundColor
     )
 
-    $ConsoleWidth = $Host.UI.RawUI.WindowSize.Width
+    
 
     if ($ForegroundColor) {
         $CurrentFColor = $Host.UI.RawUI.ForegroundColor
@@ -171,20 +171,21 @@ function Write-Line {
         }
     }
     
+    $ConsoleWidth = $Host.UI.RawUI.WindowSize.Width
 
     for ([int] $n = 0; $n -lt $ConsoleWidth; $n++) {
         $Line += $Character
     }
     
     #Determines how many characters would fit on the screen
-    $CharLength = [int](($ConsoleWidth - $Message.Length - 8) / 2)
+    
 
     if ($Message) {
-
+        $CharLength = [int](($ConsoleWidth - $Message.Length - 8) / 2)
         $ReturnMessage = "    $Message     "
 
-        for ([int] $n = 0; $n -lt $CharLength; $n++) {
-            $ReturnMessage = Format-String -String $Message -Text $Character -Surround
+        for ([int]$n = 0; $n -lt $CharLength; $n++) {
+            $ReturnMessage = Format-String -String $ReturnMessage -Text $Character -Surround
         }
     }
 
@@ -261,7 +262,7 @@ function Import-Outlook {
     }
     catch {
         #Throws a fatal error in case it can't open outlook
-        Exit-Script "Unable to get Outlook data. Please try to run the script again, and make sure that you are not running it as an administrator." -PSErrorMessage $Error[0]
+        Exit-Script "Unable to get Outlook data. Please try to run the script again, and make sure that you are not running it as an administrator." -PSErrorMessage $PSItem
     }
     Write-Line "Exiting Import-Outlook function" -Character " " -AsHeading
     $namespace
@@ -275,17 +276,18 @@ function Get-EmailData {
     )
     Write-Line -Message "Entered Get-EmailData function" -Character " " -AsHeading
 
-    Write-Debug $MailboxName
-    Write-Debug $MailboxFolder
+    
+    
 
     if ($MailboxName) {
         try {
-            Write-Verbose -Message  "Getting Inbox of $MailboxName"
+            Write-Debug "Mailbox name: $MailboxName"
+            Write-Verbose -Message  "Getting Inbox of '$MailboxName'"
             $Mailbox = $NameSpace.Stores[$MailboxName].GetRootFolder()
             $Inbox = $Mailbox.Folders["Inbox"]
         }
         catch {
-            Exit-Script $("Unable to import $MailboxName") -PSErrorMessage $Error[0]
+            Exit-Script $("Unable to import '$MailboxName'") -PSErrorMessage $PSItem
         }
     }
     else {
@@ -296,17 +298,18 @@ function Get-EmailData {
             $Inbox = $namespace.getDefaultFolder($olFolders::olFolderInBox)
         }
         catch {
-            Exit-Script "Unable to import default mailbox" -PSErrorMessage $Error[0]
+            Exit-Script "Unable to import default mailbox" -PSErrorMessage $PSItem
         }
     }
 
     if ($MailboxFolder) {
         try {
-            Write-Verbose -Message  "Checking Inbox for the folder $MailboxFolder"
+            Write-Debug "Mailbox folder name: $MailboxFolder"
+            Write-Verbose -Message  "Checking Inbox for the folder '$MailboxFolder'"
             $TargetFolder = $Inbox.Folders($MailboxFolder)
         }
         catch {
-            Exit-Script "Problem importing the folder $MailboxFolder" -PSErrorMessage $Error[0]
+            Exit-Script "Problem importing the folder '$MailboxFolder'" -PSErrorMessage $PSItem
         }
     }
     else {
@@ -341,7 +344,7 @@ function Get-EmailData {
     #     }
     # }
     # catch {
-    #     Exit-Script "Unable to locate specified mailbox or folder. Please verify that the names provided properly match the structure" -PSErrorMessage $Error[0]
+    #     Exit-Script "Unable to locate specified mailbox or folder. Please verify that the names provided properly match the structure" -PSErrorMessage $PSItem
     # }
 
     Write-Line -Message "Exiting Get-EmailData function" -Character " " -AsHeading
@@ -357,12 +360,13 @@ function Search-EmailData {
     
     Write-Line -Message "Started Search-EmailData function" -Character " " -AsHeading
 
-    Write-Debug $Sender
-    Write-Debug $Subject
-    Write-Debug $WithinDays
+    Write-Debug "Sender: $Sender"
+    Write-Debug "Subject: $Subject"
+    Write-Debug "Days ago: $WithinDays"
+
     $EmailList = $TargetFolder.Items
     if ($EmailList.Count -eq 0) { 
-        Exit-Script "No emails were found in the specified folder" -PSErrorMessage $Error[0]
+        Exit-Script "No emails were found in the specified folder"
     }
     else {
         Write-Verbose -Message  $("Initial size = " + $EmailList.Count)
@@ -371,12 +375,12 @@ function Search-EmailData {
     
     #region ************************************* Time Filter ****************************************
     try {
-        Write-Verbose -Message  "Calculating Days ago"
+        Write-Verbose "Calculating time frame"
         $DaysAgo = Get-Date (Get-Date).AddDays(-$WithinDays) -Format "M/d/yyyy HH:mm"
         Write-Verbose -Message  $("Oldest email date accepted: " + $DaysAgo)
 
 
-        Write-Verbose -Message  "Filtering emails by date"
+        Write-Information  "Filtering emails by date"
         $FilteredDate = $EmailList.Restrict("[ReceivedTime] >= '$DaysAgo'")
 
         $EmailCount = $FilteredDate.Count
@@ -384,28 +388,28 @@ function Search-EmailData {
         else { Write-Verbose -Message  $("Emails within timeframe = " + $EmailCount) }
     }
     catch {
-        Exit-Script "Unable to filter by date. Please ensure you have the correct information" -PSErrorMessage $Error[0]
+        Exit-Script "Unable to filter by date. Please ensure you have the correct information" -PSErrorMessage $PSItem
     }
     #endregion ************************************* Time Filter ****************************************
 
 
     #region ************************************* Sender Filter *****************************************
     try {
-        Write-Verbose -Message  "Filtering by sender"
+        Write-Information "Filtering by sender"
         $FilteredSender = $FilteredDate.Restrict("[SenderName] = '$Sender'")
         $EmailCount = $FilteredSender.Count
         if ($EmailCount -eq 0) { Exit-Script "No emails were found in the specified time range and sender" }
         else { Write-Verbose -Message  $("Time filtered emails with specified sender = " + $EmailCount) }
     }
     catch {
-        Exit-Script "Unable to filter by sender. Please ensure you have the correct information" -PSErrorMessage $Error[0]
+        Exit-Script "Unable to filter by sender. Please ensure you have the correct information" -PSErrorMessage $PSItem
     }    
     #endregion ********************************** Sender Filter ******************************************	
     
 
     #region ************************************** subject filter ****************************************
     try {
-        Write-Verbose -Message  "Filtering by subject"
+        Write-Information "Filtering by subject"
         #$EmailData = $FilteredSender | Where-Object Subject -like $Subject
         $EmailData = $FilteredSender.Restrict("[Subject] > '$Subject'") 
         
@@ -413,12 +417,24 @@ function Search-EmailData {
         else { Write-Verbose -Message  $("Time and sender filtered emails with specified subject = " + $EmailData.Count) }
     }
     catch {
-        Exit-Script "Unable to filter by subject. Please ensure you have the correct info" -PSErrorMessage $Error[0]
+        Exit-Script "Unable to filter by subject. Please ensure you have the correct info" -PSErrorMessage $PSItem
     }
     #endregion ************************************** subject filter ****************************************
+    try {
+        Write-Verbose "Sorting emails by ReceivedTime"
+        $null = $EmailData.Sort('[ReceivedTime]', $true) | Out-Null
+        Write-Verbose "Emails sorted"
+    }
+    catch {
+        Write-Warning $("Unable to sort emails`n`n{0}" -f $PSItem)
+    }
     
+
+    Write-Output $("There are " + $EmailData.Count + " emails to process")
+
     Write-Line -Message  $("There are " + $EmailData.Count + " emails that are being returned from Search-EmailData function") -Character " " -AsHeading
-    $($EmailData | Sort-Object -Property "ReceivedTime" -Descending)
+    #TODO figure out extra return
+    $EmailData
 }
 
 
@@ -450,7 +466,7 @@ function Set-LogPath {
         { $_ -eq 'Csv' } { $ReturnPath = Join-Path -Path $Path -ChildPath $("AdAttribute-DataFile-" + $Date.Year + "-" + $Date.Month + ".csv") }
         { $_ -eq 'Log' } { $ReturnPath = Join-Path -Path $Path -ChildPath $("AdAttribute-Log-" + $Date.ToString("s").Replace(":", ";") + ".log") }
         Default { 
-            Exit-Script "Error creating log file path. Please make sure that the FileType you are sending is either 'Csv' or 'Log'"	-PSErrorMessage $Error[0]
+            Exit-Script "Error creating log file path. Please make sure that the FileType you are sending is either 'Csv' or 'Log'"	-PSErrorMessage $PSItem
         }
     }
 
@@ -462,9 +478,8 @@ function Set-LogPath {
 
 function Get-Manager {
     param (
-        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
-        [Parameter(Mandatory = $true, Position = 1)][string]$Attribute,
-        [Parameter(Mandatory = $true, Position = 2)][string]$ID
+        [Parameter(Mandatory = $true, Position = 0)][string]$Attribute,
+        [Parameter(Mandatory = $true, Position = 1)][string]$ID
 	
     )
     Write-Line -Message "Entered Get-Manager function" -Character " " -AsHeading
@@ -481,7 +496,7 @@ function Get-Manager {
             Write-Verbose -Message $("$Manager was matched to $ID")
         }
         else {
-            Write-Warning -LogPath $LogPath "No manager was found with $Attribute = $ID"
+            Write-Warning "No manager was found with $Attribute = $ID"
             $Manager = ""
         }
 
@@ -758,16 +773,13 @@ function Read-Email {
         }
     }
 
-    Write-Verbose -Message  $("Adding 'EmailReceivedTime = " + $Email.ReceivedTime + " to the hashtable")
+    Write-Verbose -Message  $("Adding 'EmailReceivedTime = " + $Email.ReceivedTime + "' to the hashtable")
     $AttributeHash += @{
         "EmailReceivedTime" = $Email.ReceivedTime
         " "                 = ""
     }
 	
-
-    Write-Verbose -Message  ""
-    Write-Verbose -Message  "Returning data from email"
-    Write-Verbose -Message  ""
+    Write-Line -Message "Exiting Read-Email function" -AsHeading -Character " "
 
     return , $AttributeHash
 }
@@ -790,10 +802,10 @@ function Move-Email {
     try {
         Write-Verbose "Moving email..."
         $Email.Move($Destination) | Out-Null
-        Write-Output "Email was moved out"
+        Write-Verbose "Email was moved out"
     }
     catch {
-        Write-Error $("Unable to move email to the specified folder: `n`n" + $Error[0])
+        Write-Error $("Unable to move email to the specified folder: `n`n" + $PSItem)
     }
 
 
@@ -853,7 +865,7 @@ function Move-Email {
     #     }
     # }
     # catch {
-    #     Write-Error $("Unable to locate specified mailbox or folder. Please verify that the names provided properly matches the structure" + $Error[0])
+    #     Write-Error $("Unable to locate specified mailbox or folder. Please verify that the names provided properly matches the structure" + $PSItem)
     # }
 
     Write-Line -Message "Exiting Move-Email function" -Character " " -AsHeading
@@ -902,7 +914,7 @@ function Test-JSONData {
         }
     }
     catch {
-        Exit-Script "Error validating data"  -PSErrorMessage $Error[0]
+        Exit-Script "Error validating data"  -PSErrorMessage $PSItem
     }
 
     Write-Verbose -Message  $("")
@@ -949,7 +961,7 @@ try {
     Import-Module -Name ActiveDirectory -Force
 }
 catch {
-    Exit-Script -Message "Unable to import ActiveDirectory module. Please make sure it is installed before proceeding" -PSErrorMessage $Error[0]
+    Exit-Script -Message "Unable to import ActiveDirectory module. Please make sure it is installed before proceeding" -PSErrorMessage $PSItem
 }
 
 
@@ -958,7 +970,7 @@ try {
     $JsonData = Get-Content "config.json" | ConvertFrom-Json
 }
 catch {
-    Exit-Script -Message "Unable to get config.json. Please make sure it is located in the same location as the script"  -PSErrorMessage $Error[0]
+    Exit-Script -Message "Unable to get config.json. Please make sure it is located in the same location as the script"  -PSErrorMessage $PSItem
 }
 
 
@@ -980,12 +992,12 @@ catch {
 #         }
 		
 #         Default {
-#             Exit-Script "Unknown mode. Please select 'prod', 'dev', or 'auto'" -PSErrorMessage $Error[0]
+#             Exit-Script "Unknown mode. Please select 'prod', 'dev', or 'auto'" -PSErrorMessage $PSItem
 #         }
 #     }
 # }
 # catch {
-#     Exit-Script "Script failed with unknown error when trying to set the mode" -PSErrorMessage $Error[0]
+#     Exit-Script "Script failed with unknown error when trying to set the mode" -PSErrorMessage $PSItem
 # }
 
 Write-Information "Initializing Script"
@@ -998,7 +1010,7 @@ try {
     $CsvPath = Set-LogPath -Path $JsonData.logPath -FileType 'Csv'
 }
 catch {
-    Exit-Script "Unable to retrieve logpath for some reason" -PSErrorMessage $Error[0]
+    Exit-Script "Unable to retrieve logpath for some reason" -PSErrorMessage $PSItem
 }
 
 
@@ -1007,7 +1019,7 @@ try {
     Write-Output "Script Version: $PSScriptVersion"
 }
 catch {
-    Exit-Script "Unable to create log" -PSErrorMessage $Error[0]
+    Exit-Script "Unable to create log" -PSErrorMessage $PSItem
 }
 
 #endregion
@@ -1030,7 +1042,7 @@ switch ($Mode) {
             Remove-Item $CsvPath -Force
         }
         catch { 
-            Exit-Script "Unable to remove previous csv" -PSErrorMessage $Error[0]
+            Exit-Script "Unable to remove previous csv" -PSErrorMessage $PSItem
         }
         break
     }
@@ -1107,6 +1119,10 @@ foreach ($item in $EmailData) {
     Write-Verbose -Message  $("Calling Read-Email function")
     $AttributeHash = $(Read-Email -Email $Email -Json $Json)
 	
+    if ($AttributeHash.Count -lt 5) {
+        Write-Error "Email data is corrupted. Skipping"
+        continue
+    }
     Write-HashTable $AttributeHash
     #endregion ********************	Hash Table	********************
 
@@ -1179,7 +1195,7 @@ foreach ($item in $EmailData) {
                 
                 $AttributeHash.Reason += $("; Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName)
                 $Failures.Add($AttributeHash) | Out-Null
-                Write-Error -Message $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName + "`n`n" + $Error[0])
+                Write-Error -Message $("Unable to set " + $Json.'property' + " for " + $AttributeHash.SamAccountName + "`n`n" + $PSItem)
                 $AttributeHash[($Json.property + " set by script")] = $false
                 $MoveEmail = $false
             }
@@ -1211,7 +1227,7 @@ try {
     Stop-Transcript
 }
 catch {
-    Write-Error -Message $("Error exporting to Csv`n`n" + $Error[0])
+    Write-Error -Message $("Error exporting to Csv`n`n" + $PSItem)
 }
 
 try {
@@ -1227,7 +1243,7 @@ try {
     }
 }
 catch {
-    Write-Error -Message $("Unable to send failure log.`n" + $Error[0])
+    Write-Error -Message $("Unable to send failure log.`n" + $PSItem)
 }
 
 switch ($Mode) {
