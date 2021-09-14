@@ -19,7 +19,7 @@
 
 .ICONURI 
 
-.EXTERNALMODULEDEPENDENCIES ActiveDirectory, PSLogging
+.EXTERNALMODULEDEPENDENCIES ActiveDirectory
 
 .REQUIREDSCRIPTS 
 
@@ -61,6 +61,32 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Continue'
 #endregion
 
+
+#region ************************************************	Functions	**********************************************************************
+
+function New-Error {
+    [CmdletBinding()]
+    
+    param (
+        # TODO
+        [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)][string]$Message,
+        [Parameter(Mandatory = $false, Position = 1, ValueFromPipeline = $false)][string]$PSErrorMessage,
+        [Parameter(Mandatory = $false, Position = 2)][switch]$LineNumber
+        #[Parameter(Mandatory = $false, Position = 3)][switch]$TimeStamp
+    )
+
+    Write-Output "`n"
+    Write-Line -Message "ERROR: $Message" -ToScreen -ForegroundColor 'Red'
+    Write-Line -Message $("AT LINE: " + $MyInvocation.ScriptLineNumber ) -ToScreen -ForegroundColor 'Red'
+    Write-Output "`n"
+    if ($PSErrorMessage) {
+        Write-Line -Message $PSErrorMessage.Exception -ForegroundColor 'Red' -ToScreen
+        Write-Line -Message $PSErrorMessage.ErrorStackTrace -ForegroundColor 'Red' -ToScreen
+        Write-Output "`n"
+    }
+    Write-Output "`n"
+    
+}
 Function Exit-Script {
     [CmdletBinding()]
 
@@ -71,18 +97,19 @@ Function Exit-Script {
         #     [Parameter(Mandatory = $false, Position = 4)][switch]$ExitGracefully,
         #     [Parameter(Mandatory = $false, Position = 5)][switch]$ToScreen
     )
+    # throw "$Message`n`n$PSErrorMessage"
 
-    Write-Output ""
-    Write-Error -Message $Message
-    Write-Output "`n"
     if ($PSErrorMessage) {
-        Write-Error $PSErrorMessage
-        Write-Output "`n"
+        New-Error -Message $Message -PSErrorMessage $PSErrorMessage -LineNumber
     }
+    else {
+        New-Error -Message $Message -LineNumber
+    }
+
     Stop-Transcript
     Read-Host "Press 'Enter' to exit"
 
-    exit 1
+    throw
 }
 Function Send-AcientEmail {
 
@@ -108,7 +135,7 @@ Function Send-AcientEmail {
     
     Send-MailMessage @mailParams
 }
-
+#TODO script not exiting
 function Write-Line {
     [CmdletBinding()]
 
@@ -125,7 +152,7 @@ function Write-Line {
 
     if ($ForegroundColor) {
         $CurrentFColor = $Host.UI.RawUI.ForegroundColor
-    
+        Write-Verbose "Saving current foreground color as $CurrentFColor"
         switch ($ForegroundColor) {
             "Black" { $Host.UI.RawUI.ForegroundColor = "Black"; break }
             "DarkBlue" { $Host.UI.RawUI.ForegroundColor = "DarkBlue"; break }
@@ -150,6 +177,7 @@ function Write-Line {
     
     if ($BackgroundColor) {
         $CurrentBColor = $Host.UI.RawUI.BackgroundColor
+        Write-Verbose "Saving current background color as $CurrentBColor"
         switch ($BackgroundColor) {
             "Black" { $Host.UI.RawUI.BackgroundColor = "Black"; break }
             "DarkBlue" { $Host.UI.RawUI.BackgroundColor = "DarkBlue"; break }
@@ -172,32 +200,32 @@ function Write-Line {
     }
     
     $ConsoleWidth = $Host.UI.RawUI.WindowSize.Width
-
-    for ([int] $n = 0; $n -lt $ConsoleWidth; $n++) {
-        $Line += $Character
+    if ($AsHeading -or !($Message)) {
+        for ([int] $n = 0; $n -lt $ConsoleWidth; $n++) {
+            $Line += $Character
+        }
     }
     
-    #Determines how many characters would fit on the screen
     
+    #Determines how many characters would fit on the screen
 
-    if ($Message) {
+    if ($Message -and $AsHeading) {
+        
         $CharLength = [int](($ConsoleWidth - $Message.Length - 8) / 2)
         $ReturnMessage = "    $Message     "
-
         for ([int]$n = 0; $n -lt $CharLength; $n++) {
             $ReturnMessage = Format-String -String $ReturnMessage -Text $Character -Surround
         }
+        $Output = $Line + "`n" + $ReturnMessage + "`n" + $Line + "`n"
     }
-
-
-    if ($AsHeading) {
-        $Output = $Line + $ReturnMessage + $Line
+    elseif ($Message) {
+        $Output = $Message
     }
     else {
         $Output = $Line
     }
-    
-        
+
+
 
     if ($ToScreen) {
         Write-Output $Output
@@ -206,10 +234,15 @@ function Write-Line {
         Write-Verbose $Output
     }
 
-    if ($ForegroundColor) { $Host.UI.RawUI.ForegroundColor = $CurrentFColor }
-    if ($BackgroundColor) { $Host.UI.RawUI.BackgroundColor = $CurrentBColor }
+    if ($ForegroundColor) { 
+        Write-Verbose "Returning foreground color to $CurrentFColor"
+        $Host.UI.RawUI.ForegroundColor = $CurrentFColor 
+    }
+    if ($BackgroundColor) { 
+        Write-Verbose "Returning background color to $CurrentBColor"
+        $Host.UI.RawUI.BackgroundColor = $CurrentBColor 
+    }
 }
-
 function Format-String {
     param (
         [Parameter(Mandatory = $true, Position = 0, ValueFromPipeline = $true)][string]$String,
@@ -243,10 +276,9 @@ function Write-HashTable {
     Write-Verbose -Message  ""
 }
 
-#endregion Logging
 
 
-#region ************************************************	Functions	**********************************************************************
+
 function Import-Outlook {
 
     Write-Line "Entered into Import-Outlook function" -Character " " -AsHeading
@@ -350,6 +382,7 @@ function Get-EmailData {
     Write-Line -Message "Exiting Get-EmailData function" -Character " " -AsHeading
     return $TargetFolder
 }
+
 function Search-EmailData {
     param (
         [Parameter(Mandatory = $true, Position = 0)][System.__ComObject]$TargetFolder,
@@ -363,15 +396,21 @@ function Search-EmailData {
     Write-Debug "Sender: $Sender"
     Write-Debug "Subject: $Subject"
     Write-Debug "Days ago: $WithinDays"
-
-    $EmailList = $TargetFolder.Items
-    if ($EmailList.Count -eq 0) { 
-        Exit-Script "No emails were found in the specified folder"
+    try {
+        $EmailList = $TargetFolder.Items
+        if ($EmailList.Count -gt 0) {
+            Write-Information -Message  $("Initial size = " + $EmailList.Count)
+        }
+        else {
+            Exit-Script "No emails were found in the specified folder"
+        }
     }
-    else {
-        Write-Verbose -Message  $("Initial size = " + $EmailList.Count)
+    catch {
+        Exit-Script "Error getting emails" -PSErrorMessage $PSItem
     }
     
+    
+        
     
     #region ************************************* Time Filter ****************************************
     try {
@@ -429,9 +468,6 @@ function Search-EmailData {
         Write-Warning $("Unable to sort emails`n`n{0}" -f $PSItem)
     }
     
-
-    Write-Output $("There are " + $EmailData.Count + " emails to process")
-
     Write-Line -Message  $("There are " + $EmailData.Count + " emails that are being returned from Search-EmailData function") -Character " " -AsHeading
     #TODO figure out extra return
     $EmailData
@@ -629,8 +665,7 @@ function Start-Search {
     $UserList.AddRange((Search-BothNames -Properties $Properties -AttributeHash $AttributeHash))
 	
     Write-Verbose -Message  $("Checking number of accounts returned..." + $UserList.Count)
-    #TODO This section cleanup
-    #IF more than 2, then if more than 2, then if morethan2
+
 	
 
     if ($UserList.Count -eq 0) {
@@ -878,11 +913,6 @@ function Test-JSONData {
     )
 
     try {
-        if (!($JsonData.throttleLimit)) {
-            $JsonData.throttleLimit = ([int]$env:NUMBER_OF_PROCESSORS + 1)
-            Write-Warning $("No throttle limit specified. Proceeding with default limit of " + ([int]$env:NUMBER_OF_PROCESSORS + 1))
-		
-        }
         if (!($JsonData.daysAgo)) {
             $JsonData.daysAgo = 30
             Write-Warning "No date filter specified. Proceeding with default date range of 30 days"
@@ -918,7 +948,6 @@ function Test-JSONData {
     }
 
     Write-Verbose -Message  $("")
-    Write-Verbose -Message  $("Throttle Limit: " + $JsonData.throttleLimit)
     Write-Verbose -Message  $("Days Ago: " + $JsonData.daysAgo)
     Write-Verbose -Message  $("Email Subject: " + $JsonData.searchSubject)
     Write-Verbose -Message  $("Email Sender: " + $JsonData.searchSender)
@@ -934,27 +963,10 @@ function Test-JSONData {
     return $JsonData
 }
 
-
-
-function Set-ScriptMode {
-    param (
-        [Parameter(Mandatory = $true, Position = 0)][string]$Mode
-    )
-
-    Write-Verbose "Entered Set-ScriptMode function"
-
-    Write-Information "Setting mode to $mode"
-    
-    Write-Verbose "Exiting Set-ScriptMode function"
-    $Mode
-}
-
 #endregion
 
 #region ************************************************************	initialization		*******************************************************
-# #TODO figure out how to prioritize everything
-# Start-Log -LogPath "." -LogName "initiallog.log" -scriptversion 2.1.0
-# $LogPath = ".\initiallog.log"
+
 
 try {
     Write-Information "Importing ActiveDirectory module"
@@ -1028,8 +1040,8 @@ catch {
 #region data verification
 [object]$Json = Test-JSONData -JsonData $JsonData -LogPath $LogPath
 
-
-$Mode = Set-ScriptMode -Mode $Json.mode
+#TODO cleanup
+$Mode = $Json.mode
 
 switch ($Mode) {
     'dev' { 
@@ -1084,7 +1096,8 @@ $SearchSplat = @{
     WithinDays   = $Json.daysAgo
 }
 
-$EmailData = Search-EmailData @SearchSplat
+$EmailData = Search-EmailData @SearchSplat   # | Out-Null doesn't work here
+Write-Debug $("EmailData Type: " + $EmailData.GetType())
 $EmailCount = $EmailData.Count
 Write-Verbose -Message  "Final email count: $EmailCount"
 $ProgCount = 0

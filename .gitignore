@@ -3,6 +3,7 @@
 *.config
 *.csv
 *.log
+*.zip
 \logs
 \devlogs
 \previous versions
