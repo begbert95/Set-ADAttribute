@@ -64,6 +64,7 @@ $ErrorActionPreference = 'Continue'
 
 #region ************************************************	Functions	**********************************************************************
 
+#region ************************************************	logging 	**********************************************************************
 function New-Error {
     [CmdletBinding()]
     
@@ -86,6 +87,15 @@ function New-Error {
     }
     Write-Output "`n"
     
+}
+function Write-HashTable {
+    [CmdletBinding()]
+
+    param (	[System.Collections.Specialized.OrderedDictionary]$HashTable)
+	
+    Write-Verbose -Message  ""
+    Write-Verbose -Message  $([pscustomobject]$HashTable | Out-String)
+    Write-Verbose -Message  ""
 }
 Function Exit-Script {
     [CmdletBinding()]
@@ -265,16 +275,42 @@ function Format-String {
     
 }
 
+function Set-LogPath {
+    param (
+        #[Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
+        [Parameter(Mandatory = $true, Position = 0)][string]$FileType,
+        [Parameter(Mandatory = $true, Position = 1)][string]$Path,
+        [Parameter(Mandatory = $false, Position = 2)][datetime]$Date
+    )
 
-function Write-HashTable {
-    [CmdletBinding()]
+    if (!($Date)) {
+        [datetime]$Date = Get-Date
+    }
 
-    param (	[System.Collections.Specialized.OrderedDictionary]$HashTable)
-	
-    Write-Verbose -Message  ""
-    Write-Verbose -Message  $([pscustomobject]$HashTable | Out-String)
-    Write-Verbose -Message  ""
+    Write-Verbose "Checking validity of $Path"
+
+    if (!(Test-Path $Path)) {
+        Write-Warning "Unable to use selected path. Setting log path to local folder"
+        $Path = Convert-Path -Path "."
+    }
+    else {
+        Write-Verbose "$Path is valid"
+    }
+
+
+    switch ($FileType) {
+        { $_ -eq 'Csv' } { $ReturnPath = Join-Path -Path $Path -ChildPath $("AdAttribute-DataFile-" + $Date.Year + "-" + $Date.Month + ".csv") }
+        { $_ -eq 'Log' } { $ReturnPath = Join-Path -Path $Path -ChildPath $("AdAttribute-Log-" + $Date.ToString("s").Replace(":", ";") + ".log") }
+        Default { 
+            Exit-Script "Error creating log file path. Please make sure that the FileType you are sending is either 'Csv' or 'Log'"	-PSErrorMessage $PSItem
+        }
+    }
+
+    Write-Verbose -Message "File log is $ReturnPath"
+    $ReturnPath
 }
+
+#endregion ************************************************	logging 	**********************************************************************
 
 
 
@@ -473,267 +509,6 @@ function Search-EmailData {
     $EmailData
 }
 
-
-
-function Set-LogPath {
-    param (
-        #[Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
-        [Parameter(Mandatory = $true, Position = 0)][string]$FileType,
-        [Parameter(Mandatory = $true, Position = 1)][string]$Path,
-        [Parameter(Mandatory = $false, Position = 2)][datetime]$Date
-    )
-
-    if (!($Date)) {
-        [datetime]$Date = Get-Date
-    }
-
-    Write-Verbose "Checking validity of $Path"
-
-    if (!(Test-Path $Path)) {
-        Write-Warning "Unable to use selected path. Setting log path to local folder"
-        $Path = Convert-Path -Path "."
-    }
-    else {
-        Write-Verbose "$Path is valid"
-    }
-
-
-    switch ($FileType) {
-        { $_ -eq 'Csv' } { $ReturnPath = Join-Path -Path $Path -ChildPath $("AdAttribute-DataFile-" + $Date.Year + "-" + $Date.Month + ".csv") }
-        { $_ -eq 'Log' } { $ReturnPath = Join-Path -Path $Path -ChildPath $("AdAttribute-Log-" + $Date.ToString("s").Replace(":", ";") + ".log") }
-        Default { 
-            Exit-Script "Error creating log file path. Please make sure that the FileType you are sending is either 'Csv' or 'Log'"	-PSErrorMessage $PSItem
-        }
-    }
-
-    Write-Verbose -Message "File log is $ReturnPath"
-    $ReturnPath
-}
-
-
-
-function Get-Manager {
-    param (
-        [Parameter(Mandatory = $true, Position = 0)][string]$Attribute,
-        [Parameter(Mandatory = $true, Position = 1)][string]$ID
-	
-    )
-    Write-Line -Message "Entered Get-Manager function" -Character " " -AsHeading
-    Write-Verbose -Message  "Searching for manager..."
-
-    Write-Verbose -Message  "Manager's $Attribute should be $ID"
-    $Manager = [Microsoft.ActiveDirectory.Management.ADAccount]::new()
-	
-    if ($ID) {
-
-        $Manager = Get-ADUser -Filter '$Attribute -eq $ID' -Properties DistinguishedName
-
-        if ($Manager) {
-            Write-Verbose -Message $("$Manager was matched to $ID")
-        }
-        else {
-            Write-Warning "No manager was found with $Attribute = $ID"
-            $Manager = ""
-        }
-
-    }
-    else {
-        Write-Warning "No $Attribute was found for the manager. Attempting to continue script..."
-        $Manager = ""
-    }
-
-    return $Manager
-}
-
-
-
-function Search-Managers {
-    param (
-        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
-        [Parameter(Mandatory = $true, Position = 1)][List[ADUser]]$UserList,
-        [Parameter(Mandatory = $true, Position = 2)][string]$Manager
-    )
-    Write-Verbose -Message "Filtering list by manager. Correct manager is $Manager"
-    $ReturnList = [List[ADUser]]::new()
-
-	
-    foreach ($user in $UserList) {
-        Write-Verbose -Message $($User.SamAccountName + "'s manager is " + $user.manager)
-        Write-Verbose -Message  $($user.SamAccountName)
-        Write-Verbose -Message  $("Manager " + $user.Manager)
-        if ($user.Manager -eq $Manager) {
-            $ReturnList.Add($user) | Out-Null
-        }
-		
-    }
-    Write-Verbose -Message  "Returning filtered list"
-    
-    , $ReturnList
-}
-
-
-
-function Search-Location {
-    param (
-        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
-        [Parameter(Mandatory = $true, Position = 1)][List[ADUser]]$UserList,
-        [Parameter(Mandatory = $true, Position = 2)][string]$Office
-    )
-	
-
-    $ReturnList = [List[ADUser]]::new()
-
-    Write-Verbose -Message  "Searching for the $Office location in the list..."
-    $ReturnList = $UserList | Where-Object { $_.Office -like $("*" + $Office + "*") }
-
-    , $ReturnList
-}
-
-
-
-function Search-DisplayName {
-    param (
-        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
-        [Parameter(Mandatory = $true, Position = 1)][string]$Name,
-        [Parameter(Mandatory = $true, Position = 2)]$Properties
-    )
-    Write-Line "Started Search-DisplayName function" -Character " " -AsHeading
-
-    Write-Verbose -Message  $("Searching display names for $Name...")
-    $ReturnList = [List[ADUser]]::new()
-	
-    $ReturnData = Get-ADUser -Filter { DisplayName -like $Name } -Properties $Properties
-	
-    foreach ($item in $ReturnData) {
-        Write-Verbose -Message  $("User: " + $item.SamAccountName + " is type " + $item.GetType())
-        $ReturnList.Add($item) | Out-Null
-    }
-	
-    Write-Line -Message $("Returned " + $ReturnList.Count + " users of type " + $ReturnList.GetType() + " from first check") -Character " " -AsHeading
-
-    , $ReturnList
-}
-
-
-
-
-function Search-BothNames {
-    param (
-        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
-        [Parameter(Mandatory = $true, Position = 1)][string[]]$Properties,
-        [Parameter(Mandatory = $true, Position = 2)][System.Collections.IDictionary]$AttributeHash
-    )
-    Write-Line -Message "Started Search-BothNames function" -Character " " -AsHeading
-
-    $ReturnList = [List[ADUser]]::new()
-    $gn = "*" + $AttributeHash.FN + "*"
-    $sn = "*" + $AttributeHash.LN + "*"
-    $Count = 0
-    Write-Verbose -Message $("Searching for users with firstname " + $AttributeHash.FN + " and lastname " + $AttributeHash.LN)
-    $data = Get-ADUser -Filter { GivenName -like $gn -and Surname -like $sn } -Properties $Properties
-	
-
-    foreach ($pers in $data) {
-        Write-Verbose -Message  $("User: " + $pers.SamAccountName + " is type " + $pers.GetType())
-        $ReturnList.Add($pers) | Out-Null
-        $Count++
-    }
-
-	
-    Write-Line -Message $("Returning " + $ReturnList.Count + " users of type " + $ReturnList.GetType() + " from First check") -AsHeading -Character " "
-	
-
-    , $ReturnList
-}
-
-
-
-function Start-Search {
-    param (
-        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
-        [Parameter(Mandatory = $true, Position = 1)][string[]]$Properties,
-        [Parameter(Mandatory = $true, Position = 2)][System.Collections.IDictionary]$AttributeHash,
-        [Parameter(Mandatory = $false, Position = 3)][bool]$HighPrecision = $false
-    )
-
-    Write-Line -Message "Entering Search-BothNames function" -Character " " -AsHeading
-
-    $UserList = [List[ADUser]]::new()
-    $Reason = ""
-	
-    Write-Verbose -Message  $("Data was returned with type " + $UserList.GetType())
-    $UserList.AddRange((Search-BothNames -Properties $Properties -AttributeHash $AttributeHash))
-	
-    Write-Verbose -Message  $("Checking number of accounts returned..." + $UserList.Count)
-
-	
-
-    if ($UserList.Count -eq 0) {
-		
-        Write-Verbose -Message  "No users were found with the matching names. Initiating display name search"
-        $Reason += "F&L Name: Failed - Display Name: "
-        $UserList.AddRange((Search-DisplayName -Name $AttributeHash.Name -Properties $Properties)) | Out-Null
-    }
-
-	
-
-    #Separate
-    if ($UserList.Count -gt 1) {
-
-        if ($null -ne $AttributeHash.ManagerDN) {
-            Write-Verbose -Message "Calling Search-Managers function"
-            $UserList = Search-Managers -UserList $UserList -Manager $AttributeHash.ManagerDN
-			
-            $Reason += "multiple returns - Manager:"
-        }
-        else {
-            Write-Verbose -Message "Calling Search-Location function because there was no manager"
-            $UserList = Search-Location -UserList $UserList -Office $AttributeHash.Location
-
-            $Reason += "multiple returns - Location: "
-        }
-		
-    }
-
-
-    if ($UserList.Count -eq 0) {
-        $Reason += "Failed"
-	
-        Write-Error -Message $("No users were found. Please manually update " + $AttributeHash.Name)
-    }
-
-    elseif ($UserList.Count -eq 1) {
-        Write-Verbose -Message "One user was returned"
-        foreach ($prop in $Properties) {
-
-            if ($UserList[0].$prop) {
-                Write-Verbose -Message $("Adding $prop = " + $UserList[0].$prop + " to hashtable")
-                $AttributeHash.Add($prop, $UserList[0].$prop) | Out-Null
-            }
-            else { 
-                Write-Verbose -Message $("Adding $prop as empty value to hashtable")
-                $AttributeHash.Add($prop, "") | Out-Null
-            }
-        }
-    }
-
-    else {
-        Write-Verbose -Message "Multiple accounts were returned, and contain identical attributes"
-        $Reason += "; Multiple accounts"
-        foreach ($prop in $Properties) {
-            Write-Verbose -Message $("Adding $prop as empty value to hashtable")
-            $AttributeHash.Add($prop, "") | Out-Null
-        }
-    }
-
-    $AttributeHash.Add($($Json.property + " set by script"), $false)
-    $AttributeHash.Add("Reason", $Reason)
-
-    Write-Line "Returning from Start-Search function" -Character " " -AsHeading
-
-}
-
-
 function Read-Email {
     param (
         [Parameter(Mandatory = $true, Position = 0)]$Email, 
@@ -843,69 +618,236 @@ function Move-Email {
         Write-Error $("Unable to move email to the specified folder: `n`n" + $PSItem)
     }
 
-
-
-    # try {
-    #     Write-Verbose -Message  "Checking if a mailbox name or folder was selected"
-    #     if ($MailboxName) {
-
-    #         $Mailbox = $NameSpace.Stores[$MailboxName].GetRootFolder()
-    #         Write-Debug $Mailbox.GetType()
-    #         $Inbox = $Mailbox.Folders["Inbox"]
-    #         Write-Debug $Inbox.GetType()
-
-            
-            
-    #         $ThisFolder = $Inbox.Folders["$CurrentFolder"]
-    #         Write-Debug $ThisFolder.GetType()
-    #         $CurrentFolderItems = $ThisFolder.Items
-    #         $EmailItem = $CurrentFolderItems.Find("[Subject] = '$Subject'")
-
-    #         $TargetNewFolder = $Inbox.Folders["$NewFolder"]
-    #         Write-Verbose -Message  "Moving email to $NewFolder"
-            
-            
-            
-    #     }
-    #     elseif ($CurrentFolder) {
-    #         Write-Verbose -Message  "Checking default mailbox for the folder $MailboxFolder"
-    #         Add-type -assembly 'Microsoft.Office.Interop.Outlook' | out-null
-    #         $olFolders = 'Microsoft.Office.Interop.Outlook.olDefaultFolders' -as [type]
-    #         $Inbox = $namespace.getDefaultFolder($olFolders::olFolderInBox)
-
-    #         $ThisFolder = $Inbox.Folders["$CurrentFolder"]
-    #         Write-Debug $ThisFolder.GetType()
-    #         $CurrentFolderItems = $ThisFolder.Items
-    #         $EmailItem = $CurrentFolderItems.Find("[Subject] = '$Subject'")
-
-    #         $TargetNewFolder = $Inbox.Folders["$NewFolder"]
-    #         Write-Verbose -Message  "Moving email to $NewFolder"
-            
-            
-    #         $EmailItem.Move($TargetNewFolder)
-    #     }
-    #     else {
-    #         Write-Verbose "Finding the correct email to move"
-    #         Add-type -assembly 'Microsoft.Office.Interop.Outlook' | out-null
-    #         $olFolders = 'Microsoft.Office.Interop.Outlook.olDefaultFolders' -as [type]
-    #         $Inbox = $namespace.getDefaultFolder($olFolders::olFolderInBox)
-    #         $CurrentFolderItems = $Inbox.Items
-    #         $EmailItem = $CurrentFolderItems.Find("[Subject] = '$Subject'")
-
-    #         $TargetNewFolder = $Inbox.Folders["$NewFolder"]
-    #         Write-Verbose -Message  "Moving email to $NewFolder"
-            
-            
-    #         $EmailItem.Move($TargetNewFolder)
-    #     }
-    # }
-    # catch {
-    #     Write-Error $("Unable to locate specified mailbox or folder. Please verify that the names provided properly matches the structure" + $PSItem)
-    # }
-
     Write-Line -Message "Exiting Move-Email function" -Character " " -AsHeading
 
 }
+
+
+
+
+function Get-Manager {
+    param (
+        [Parameter(Mandatory = $true, Position = 0)][string]$Attribute,
+        [Parameter(Mandatory = $true, Position = 1)][string]$ID
+	
+    )
+    Write-Line -Message "Entered Get-Manager function" -Character " " -AsHeading
+    Write-Verbose -Message  "Searching for manager..."
+
+    Write-Verbose -Message  "Manager's $Attribute should be $ID"
+    $Manager = [Microsoft.ActiveDirectory.Management.ADAccount]::new()
+	
+    if ($ID) {
+
+        $Manager = Get-ADUser -Filter '$Attribute -eq $ID' -Properties DistinguishedName
+
+        if ($Manager) {
+            Write-Verbose -Message $("$Manager was matched to $ID")
+        }
+        else {
+            Write-Warning "No manager was found with $Attribute = $ID"
+            $Manager = ""
+        }
+
+    }
+    else {
+        Write-Warning "No $Attribute was found for the manager. Attempting to continue script..."
+        $Manager = ""
+    }
+
+    return $Manager
+}
+
+function Start-Search {
+    param (
+        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
+        [Parameter(Mandatory = $true, Position = 1)][string[]]$Properties,
+        [Parameter(Mandatory = $true, Position = 2)][System.Collections.IDictionary]$AttributeHash,
+        [Parameter(Mandatory = $false, Position = 3)][bool]$HighPrecision = $false
+    )
+
+    Write-Line -Message "Entering Search-BothNames function" -Character " " -AsHeading
+
+    $UserList = [List[ADUser]]::new()
+    $Reason = ""
+	
+    Write-Verbose -Message  $("Data was returned with type " + $UserList.GetType())
+    $UserList.AddRange((Search-BothNames -Properties $Properties -AttributeHash $AttributeHash))
+	
+    Write-Verbose -Message  $("Checking number of accounts returned..." + $UserList.Count)
+
+	
+
+    if ($UserList.Count -eq 0) {
+		
+        Write-Verbose -Message  "No users were found with the matching names. Initiating display name search"
+        $Reason += "F&L Name: Failed - Display Name: "
+        $UserList.AddRange((Search-DisplayName -Name $AttributeHash.Name -Properties $Properties)) | Out-Null
+    }
+
+	
+
+    #Separate
+    if ($UserList.Count -gt 1) {
+
+        if ($null -ne $AttributeHash.ManagerDN) {
+            Write-Verbose -Message "Calling Search-Managers function"
+            $UserList = Search-Managers -UserList $UserList -Manager $AttributeHash.ManagerDN
+			
+            $Reason += "multiple returns - Manager:"
+        }
+        else {
+            Write-Verbose -Message "Calling Search-Location function because there was no manager"
+            $UserList = Search-Location -UserList $UserList -Office $AttributeHash.Location
+
+            $Reason += "multiple returns - Location: "
+        }
+		
+    }
+
+
+    if ($UserList.Count -eq 0) {
+        $Reason += "Failed"
+	
+        Write-Error -Message $("No users were found. Please manually update " + $AttributeHash.Name)
+    }
+
+    elseif ($UserList.Count -eq 1) {
+        Write-Verbose -Message "One user was returned"
+        foreach ($prop in $Properties) {
+
+            if ($UserList[0].$prop) {
+                Write-Verbose -Message $("Adding $prop = " + $UserList[0].$prop + " to hashtable")
+                $AttributeHash.Add($prop, $UserList[0].$prop) | Out-Null
+            }
+            else { 
+                Write-Verbose -Message $("Adding $prop as empty value to hashtable")
+                $AttributeHash.Add($prop, "") | Out-Null
+            }
+        }
+    }
+
+    else {
+        Write-Verbose -Message "Multiple accounts were returned, and contain identical attributes"
+        $Reason += "; Multiple accounts"
+        foreach ($prop in $Properties) {
+            Write-Verbose -Message $("Adding $prop as empty value to hashtable")
+            $AttributeHash.Add($prop, "") | Out-Null
+        }
+    }
+
+    $AttributeHash.Add($($Json.property + " set by script"), $false)
+    $AttributeHash.Add("Reason", $Reason)
+
+    Write-Line "Returning from Start-Search function" -Character " " -AsHeading
+
+}
+
+
+function Search-Managers {
+    param (
+        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
+        [Parameter(Mandatory = $true, Position = 1)][List[ADUser]]$UserList,
+        [Parameter(Mandatory = $true, Position = 2)][string]$Manager
+    )
+    Write-Verbose -Message "Filtering list by manager. Correct manager is $Manager"
+    $ReturnList = [List[ADUser]]::new()
+
+	
+    foreach ($user in $UserList) {
+        Write-Verbose -Message $($User.SamAccountName + "'s manager is " + $user.manager)
+        Write-Verbose -Message  $($user.SamAccountName)
+        Write-Verbose -Message  $("Manager " + $user.Manager)
+        if ($user.Manager -eq $Manager) {
+            $ReturnList.Add($user) | Out-Null
+        }
+		
+    }
+    Write-Verbose -Message  "Returning filtered list"
+    
+    , $ReturnList
+}
+
+
+
+function Search-Location {
+    param (
+        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
+        [Parameter(Mandatory = $true, Position = 1)][List[ADUser]]$UserList,
+        [Parameter(Mandatory = $true, Position = 2)][string]$Office
+    )
+	
+
+    $ReturnList = [List[ADUser]]::new()
+
+    Write-Verbose -Message  "Searching for the $Office location in the list..."
+    $ReturnList = $UserList | Where-Object { $_.Office -like $("*" + $Office + "*") }
+
+    , $ReturnList
+}
+
+
+
+function Search-DisplayName {
+    param (
+        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
+        [Parameter(Mandatory = $true, Position = 1)][string]$Name,
+        [Parameter(Mandatory = $true, Position = 2)]$Properties
+    )
+    Write-Line "Started Search-DisplayName function" -Character " " -AsHeading
+
+    Write-Verbose -Message  $("Searching display names for $Name...")
+    $ReturnList = [List[ADUser]]::new()
+	
+    $ReturnData = Get-ADUser -Filter { DisplayName -like $Name } -Properties $Properties
+	
+    foreach ($item in $ReturnData) {
+        Write-Verbose -Message  $("User: " + $item.SamAccountName + " is type " + $item.GetType())
+        $ReturnList.Add($item) | Out-Null
+    }
+	
+    Write-Line -Message $("Returned " + $ReturnList.Count + " users of type " + $ReturnList.GetType() + " from first check") -Character " " -AsHeading
+
+    , $ReturnList
+}
+
+
+
+
+function Search-BothNames {
+    param (
+        [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,
+        [Parameter(Mandatory = $true, Position = 1)][string[]]$Properties,
+        [Parameter(Mandatory = $true, Position = 2)][System.Collections.IDictionary]$AttributeHash
+    )
+    Write-Line -Message "Started Search-BothNames function" -Character " " -AsHeading
+
+    $ReturnList = [List[ADUser]]::new()
+    $gn = "*" + $AttributeHash.FN + "*"
+    $sn = "*" + $AttributeHash.LN + "*"
+    $Count = 0
+    Write-Verbose -Message $("Searching for users with firstname " + $AttributeHash.FN + " and lastname " + $AttributeHash.LN)
+    $data = Get-ADUser -Filter { GivenName -like $gn -and Surname -like $sn } -Properties $Properties
+	
+
+    foreach ($pers in $data) {
+        Write-Verbose -Message  $("User: " + $pers.SamAccountName + " is type " + $pers.GetType())
+        $ReturnList.Add($pers) | Out-Null
+        $Count++
+    }
+
+	
+    Write-Line -Message $("Returning " + $ReturnList.Count + " users of type " + $ReturnList.GetType() + " from First check") -AsHeading -Character " "
+	
+
+    , $ReturnList
+}
+
+
+
+
+
+
 function Test-JSONData {
     param(
         [Parameter(Mandatory = $false, Position = 0)][string]$LogPath,	
